@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>email tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            font-family: 'IBM Plex Mono', monospace;
+            color: rgba(255, 255, 255, 0.87);
+            background-color: #000000;
+        }
+
+        body { 
+            font-family: 'IBM Plex Mono', monospace;
+            background: #000000;
+            color: rgba(255, 255, 255, 0.87);
+            min-height: 100vh;
+        }
+
+        .brand-title {
+            font-size: 3rem;
+            font-weight: 300;
+            letter-spacing: 0.1rem;
+            color: white;
+            text-shadow: 0 0 30px rgba(255, 255, 255, 0.3);
+            background: linear-gradient(142deg, #ffeee2 0%, #eec9b0 40%, #ffffff 60%, #efb496 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .brand-subtitle {
+            font-size: 0.9rem;
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.6);
+            letter-spacing: 0.05rem;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .glass-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        input[type="text"] {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.9);
+            font-family: 'IBM Plex Mono', monospace;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.25);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        input::placeholder {
+            color: rgba(255, 255, 255, 0.3);
+        }
+
+        .action-button {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: rgba(255, 255, 255, 0.95);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.9rem;
+            letter-spacing: 0.05rem;
+            padding: 14px 24px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .action-button:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.25);
+            transform: translateY(-1px);
+        }
+
+        .action-button:active {
+            transform: translateY(0);
+        }
+
+        .action-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .label-text {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.85rem;
+            letter-spacing: 0.03rem;
+        }
+
+        .email-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .email-card:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .email-subject {
+            color: rgba(255, 255, 255, 0.95);
+            font-size: 1.1rem;
+            font-weight: 500;
+            letter-spacing: 0.03rem;
+            margin-bottom: 12px;
+        }
+
+        .email-meta {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 0.8rem;
+            margin-bottom: 16px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            letter-spacing: 0.05rem;
+            text-transform: uppercase;
+        }
+
+        .status-opened {
+            background: rgba(34, 197, 94, 0.1);
+            color: rgba(34, 197, 94, 0.9);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+        }
+
+        .status-unopened {
+            background: rgba(251, 191, 36, 0.1);
+            color: rgba(251, 191, 36, 0.9);
+            border: 1px solid rgba(251, 191, 36, 0.2);
+        }
+
+        .status-bot {
+            background: rgba(239, 68, 68, 0.1);
+            color: rgba(239, 68, 68, 0.9);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .copy-button {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.8);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.75rem;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .copy-button:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .delete-button {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: rgba(239, 68, 68, 0.9);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.75rem;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .delete-button:hover {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .open-detail {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 14px;
+            margin-top: 10px;
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .loading-spinner {
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-top: 2px solid rgba(255, 238, 226, 0.8);
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-left: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .tracking-url-box {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 14px;
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.8);
+            word-break: break-all;
+            font-family: 'IBM Plex Mono', monospace;
+            margin-top: 16px;
+        }
+
+        .instructions-box {
+            background: rgba(255, 238, 226, 0.05);
+            border: 1px solid rgba(255, 238, 226, 0.15);
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .instruction-step {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.85rem;
+            line-height: 1.8;
+            margin-bottom: 12px;
+            padding-left: 24px;
+            position: relative;
+        }
+
+        .instruction-step::before {
+            content: '→';
+            position: absolute;
+            left: 0;
+            color: rgba(255, 238, 226, 0.6);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        .section-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.05);
+            margin: 24px 0;
+        }
+
+        .info-badge {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            color: rgba(59, 130, 246, 0.9);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            display: inline-block;
+        }
+
+        @media (max-width: 768px) {
+            .brand-title {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="max-w-4xl mx-auto p-6 min-h-screen">
+        <!-- Header -->
+        <div class="text-center mb-12 mt-8">
+            <h1 class="brand-title">email tracker</h1>
+            <p class="brand-subtitle mt-2">track email opens with invisible pixels</p>
+        </div>
+
+        <!-- Create New Email Card -->
+        <div class="glass-card mb-10">
+            <div class="p-8">
+                <h2 class="text-lg font-medium text-white text-opacity-95 mb-6" style="letter-spacing: 0.03rem;">create new tracking link</h2>
+                
+                <div class="space-y-5">
+                    <div>
+                        <label class="label-text block mb-2">email subject</label>
+                        <input type="text" id="subject-input" placeholder="weekly newsletter">
+                    </div>
+                    
+                    <div>
+                        <label class="label-text block mb-2">recipient (optional)</label>
+                        <input type="text" id="recipient-input" placeholder="john@example.com">
+                    </div>
+                    
+                    <button id="create-btn" class="action-button w-full mt-2">
+                        create tracking link
+                    </button>
+                </div>
+
+                <!-- Success Message -->
+                <div id="success-message" class="hidden">
+                    <div class="section-divider"></div>
+                    
+                    <div class="instructions-box">
+                        <div class="text-sm text-white text-opacity-90 mb-4 font-medium">
+                            ✓ tracking link created!
+                        </div>
+                        
+                        <div class="text-xs text-white text-opacity-60 mb-4 font-medium" style="letter-spacing: 0.05rem;">
+                            HOW TO ADD TO YOUR EMAIL:
+                        </div>
+                        
+                        <div class="instruction-step">
+                            In Gmail: Click the image icon, select "Web Address (URL)", paste the tracking URL below
+                        </div>
+                        
+                        <div class="instruction-step">
+                            Or use an email service that supports HTML (Mailchimp, SendGrid, etc.)
+                        </div>
+                        
+                        <div class="instruction-step">
+                            After inserting the image, resize it to 1x1 pixel or make it invisible
+                        </div>
+                    </div>
+                    
+                    <div class="mt-5">
+                        <div class="text-xs text-white text-opacity-60 mb-2 font-medium" style="letter-spacing: 0.05rem;">
+                            TRACKING URL:
+                        </div>
+                        <div class="tracking-url-box" id="created-url"></div>
+                    </div>
+                    
+                    <div class="flex gap-3 mt-4">
+                        <button id="copy-url-btn" class="copy-button flex-1">
+                            copy tracking url
+                        </button>
+                        <button id="copy-html-btn" class="copy-button flex-1">
+                            copy html snippet
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tracked Emails List -->
+        <div class="glass-card">
+            <div class="p-8">
+                <div class="flex justify-between items-center mb-8">
+                    <h2 class="text-lg font-medium text-white text-opacity-95" style="letter-spacing: 0.03rem;">tracked emails</h2>
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs text-white text-opacity-50">auto-refresh in <span id="countdown">10</span>s</span>
+                        <button id="refresh-btn" class="copy-button">
+                            refresh
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="emails-container">
+                    <!-- Emails will be inserted here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let countdownInterval;
+        let countdownValue = 10;
+
+        const getEl = (id) => document.getElementById(id);
+        const UI = {
+            subjectInput: getEl('subject-input'),
+            recipientInput: getEl('recipient-input'),
+            createBtn: getEl('create-btn'),
+            successMessage: getEl('success-message'),
+            createdUrl: getEl('created-url'),
+            copyHtmlBtn: getEl('copy-html-btn'),
+            copyUrlBtn: getEl('copy-url-btn'),
+            emailsContainer: getEl('emails-container'),
+            refreshBtn: getEl('refresh-btn'),
+            countdown: getEl('countdown')
+        };
+
+        let currentTrackingUrl = '';
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function createTrackedEmail() {
+            const subject = UI.subjectInput.value.trim();
+            const recipient = UI.recipientInput.value.trim();
+
+            if (!subject) {
+                alert('Please enter an email subject');
+                return;
+            }
+
+            UI.createBtn.disabled = true;
+            UI.createBtn.innerHTML = 'creating...<span class="loading-spinner"></span>';
+
+            try {
+                const res = await fetch('/api/emails', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subject, recipient: recipient || 'Unknown' })
+                });
+
+                if (!res.ok) throw new Error('Failed to create tracking link');
+
+                const email = await res.json();
+                currentTrackingUrl = email.trackingUrl;
+
+                // Show success message
+                UI.createdUrl.textContent = email.trackingUrl;
+                UI.successMessage.classList.remove('hidden');
+
+                // Clear inputs
+                UI.subjectInput.value = '';
+                UI.recipientInput.value = '';
+
+                // Scroll to success message
+                UI.successMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+                // Refresh the list
+                await loadEmails();
+
+            } catch (error) {
+                console.error(error);
+                alert('Failed to create tracking link');
+            } finally {
+                UI.createBtn.disabled = false;
+                UI.createBtn.textContent = 'create tracking link';
+            }
+        }
+
+        function formatDate(isoString) {
+            const date = new Date(isoString);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+
+            if (diffMins < 1) return 'just now';
+            if (diffMins < 60) return `${diffMins}m ago`;
+            if (diffHours < 24) return `${diffHours}h ago`;
+            if (diffDays < 7) return `${diffDays}d ago`;
+            
+            return date.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric',
+                year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+            });
+        }
+
+        function renderEmail(email) {
+            const humanOpens = email.opens.filter(o => !o.isBot);
+            const botOpens = email.opens.filter(o => o.isBot);
+            const hasHumanOpens = humanOpens.length > 0;
+            const hasBotOpens = botOpens.length > 0;
+
+            let statusHtml = '';
+            if (hasHumanOpens) {
+                statusHtml = `<span class="status-badge status-opened">opened ${humanOpens.length}x</span>`;
+            } else if (hasBotOpens) {
+                statusHtml = `<span class="status-badge status-bot">bot only</span>`;
+            } else {
+                statusHtml = `<span class="status-badge status-unopened">not opened</span>`;
+            }
+
+            const lastOpenedText = email.lastOpened 
+                ? `<span class="info-badge">last opened ${formatDate(email.lastOpened)}</span>`
+                : '';
+
+            let opensDetailsHtml = '';
+            if (humanOpens.length > 0) {
+                opensDetailsHtml = '<div class="mt-5"><div class="text-xs text-white text-opacity-60 mb-3 font-medium" style="letter-spacing: 0.05rem;">OPENS:</div>';
+                humanOpens.slice(0, 5).forEach(open => {
+                    const timestamp = formatDate(open.timestamp);
+                    const userAgent = open.userAgent.substring(0, 80) + (open.userAgent.length > 80 ? '...' : '');
+                    opensDetailsHtml += `
+                        <div class="open-detail">
+                            <div class="text-white text-opacity-70 mb-2">${timestamp}</div>
+                            <div class="text-white text-opacity-50">${escapeHtml(userAgent)}</div>
+                        </div>
+                    `;
+                });
+                if (humanOpens.length > 5) {
+                    opensDetailsHtml += `<div class="text-xs text-white text-opacity-40 mt-3">+ ${humanOpens.length - 5} more opens</div>`;
+                }
+                opensDetailsHtml += '</div>';
+            }
+
+            return `
+                <div class="email-card">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="flex-1">
+                            <div class="email-subject">${escapeHtml(email.subject)}</div>
+                            <div class="email-meta">
+                                to: ${escapeHtml(email.recipient)} • created ${formatDate(email.createdAt)}
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            ${statusHtml}
+                            <button class="delete-button" onclick="deleteEmail('${email.id}')">delete</button>
+                        </div>
+                    </div>
+                    
+                    ${lastOpenedText ? `<div class="mb-4">${lastOpenedText}</div>` : ''}
+                    
+                    ${opensDetailsHtml}
+                    
+                    <div class="mt-5">
+                        <div class="text-xs text-white text-opacity-60 mb-2 font-medium" style="letter-spacing: 0.05rem;">TRACKING URL:</div>
+                        <div class="tracking-url-box">
+                            ${escapeHtml(email.trackingUrl)}
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-3 mt-4">
+                        <button class="copy-button" onclick="copyToClipboard('${email.trackingUrl}', 'URL copied!')">
+                            copy tracking url
+                        </button>
+                        <button class="copy-button" onclick="copyHtmlSnippet('${email.trackingUrl}')">
+                            copy html snippet
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function loadEmails() {
+            try {
+                const res = await fetch('/api/emails');
+                if (!res.ok) throw new Error('Failed to load emails');
+
+                const emails = await res.json();
+
+                if (emails.length === 0) {
+                    UI.emailsContainer.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📧</div>
+                            <div>no tracked emails yet</div>
+                            <div class="text-xs mt-2">create your first tracking link above</div>
+                        </div>
+                    `;
+                } else {
+                    UI.emailsContainer.innerHTML = emails.map(renderEmail).join('');
+                }
+
+                resetCountdown();
+            } catch (error) {
+                console.error(error);
+                UI.emailsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div>failed to load emails</div>
+                        <button class="copy-button mt-4" onclick="loadEmails()">retry</button>
+                    </div>
+                `;
+            }
+        }
+
+        async function deleteEmail(id) {
+            if (!confirm('Delete this tracked email?')) return;
+
+            try {
+                const res = await fetch(`/api/emails/${id}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error('Failed to delete email');
+
+                await loadEmails();
+            } catch (error) {
+                console.error(error);
+                alert('Failed to delete email');
+            }
+        }
+
+        function copyToClipboard(text, message = 'Copied!') {
+            navigator.clipboard.writeText(text).then(() => {
+                alert(message);
+            });
+        }
+
+        function copyHtmlSnippet(url) {
+            const html = `<img src="${url}" width="1" height="1" style="display:none" />`;
+            copyToClipboard(html, 'HTML snippet copied!');
+        }
+
+        function resetCountdown() {
+            countdownValue = 10;
+            UI.countdown.textContent = countdownValue;
+        }
+
+        function startCountdown() {
+            countdownInterval = setInterval(() => {
+                countdownValue--;
+                UI.countdown.textContent = countdownValue;
+
+                if (countdownValue <= 0) {
+                    loadEmails();
+                }
+            }, 1000);
+        }
+
+        // Event listeners
+        UI.createBtn.addEventListener('click', createTrackedEmail);
+        UI.refreshBtn.addEventListener('click', loadEmails);
+
+        UI.copyHtmlBtn.addEventListener('click', () => {
+            const html = `<img src="${currentTrackingUrl}" width="1" height="1" style="display:none" />`;
+            copyToClipboard(html, 'HTML snippet copied!');
+        });
+
+        UI.copyUrlBtn.addEventListener('click', () => {
+            copyToClipboard(currentTrackingUrl, 'URL copied!');
+        });
+
+        // Allow Enter key to create
+        UI.subjectInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') createTrackedEmail();
+        });
+
+        UI.recipientInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') createTrackedEmail();
+        });
+
+        // Initial load and start countdown
+        loadEmails();
+        startCountdown();
+    </script>
+</body>
+</html>
