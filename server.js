@@ -37,44 +37,62 @@ async function writeData(data) {
     await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-// Detect if the request is from a bot/prefetch
-function isPotentialBot(userAgent, headers) {
-    if (!userAgent) return true;
+// Improved bot detection - less aggressive
+function detectOpenType(userAgent, headers) {
+    if (!userAgent) {
+        return { type: 'unknown', isLikelyReal: false };
+    }
     
     const userAgentLower = userAgent.toLowerCase();
     
-    // Known email client prefetchers and bots
-    const botPatterns = [
-        'googleimageproxy',
-        'mail.ru',
+    // These are definitely bots/crawlers
+    const definitelyBots = [
         'bot',
         'crawler',
         'spider',
+        'slurp',
+        'bingbot',
+        'facebookexternalhit',
         'preview',
         'prefetch',
-        'prerender',
-        'yahoo! slurp',
-        'bingbot',
-        'facebookexternalhit'
+        'prerender'
     ];
     
-    for (const pattern of botPatterns) {
-        if (userAgentLower.includes(pattern)) {
-            return true;
+    for (const pattern of definitelyBots) {
+        if (userAgentLower.includes(pattern) && !userAgentLower.includes('webview')) {
+            return { type: 'bot', isLikelyReal: false };
         }
     }
     
-    // Check for Gmail's image proxy
-    if (headers['via'] && headers['via'].includes('google')) {
-        return true;
+    // Gmail image proxy - this IS a real open!
+    // Gmail only loads images through proxy when user opens the email
+    if (userAgentLower.includes('googleimageproxy') || 
+        (headers['via'] && headers['via'].toLowerCase().includes('google'))) {
+        return { type: 'gmail-proxy', isLikelyReal: true };
     }
     
-    // Check for missing or suspicious headers
-    if (!headers['accept'] || !headers['accept-language']) {
-        return true;
+    // Yahoo/AOL image proxies - also real opens
+    if (userAgentLower.includes('yahoo') && userAgentLower.includes('slurp') === false) {
+        return { type: 'yahoo-proxy', isLikelyReal: true };
     }
     
-    return false;
+    // Direct browser access - definitely real
+    if (userAgentLower.includes('mozilla') || 
+        userAgentLower.includes('chrome') || 
+        userAgentLower.includes('safari') ||
+        userAgentLower.includes('firefox')) {
+        return { type: 'browser', isLikelyReal: true };
+    }
+    
+    // Mobile email clients
+    if (userAgentLower.includes('mobile') || 
+        userAgentLower.includes('iphone') || 
+        userAgentLower.includes('android')) {
+        return { type: 'mobile', isLikelyReal: true };
+    }
+    
+    // Default: probably real but uncertain
+    return { type: 'unknown', isLikelyReal: true };
 }
 
 // Create tracking pixel endpoint - GET request
@@ -84,8 +102,8 @@ app.get('/track/:id', async (req, res) => {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'Unknown';
     const referer = req.headers['referer'] || 'Direct';
     
-    // Check if it's a bot
-    const isBot = isPotentialBot(userAgent, req.headers);
+    // Detect open type
+    const openInfo = detectOpenType(userAgent, req.headers);
     
     try {
         const data = await readData();
@@ -97,7 +115,8 @@ app.get('/track/:id', async (req, res) => {
                 userAgent,
                 ip: ip.replace('::ffff:', ''), // Clean IPv6 prefix
                 referer,
-                isBot,
+                openType: openInfo.type,
+                isReal: openInfo.isLikelyReal,
                 headers: {
                     via: req.headers['via'] || null,
                     accept: req.headers['accept'] || null,
@@ -108,10 +127,12 @@ app.get('/track/:id', async (req, res) => {
             email.opens = email.opens || [];
             email.opens.push(openEvent);
             
-            // Update last opened timestamp (only for non-bot opens)
-            if (!isBot) {
+            // Update counts and last opened
+            const realOpens = email.opens.filter(o => o.isReal);
+            email.openCount = realOpens.length;
+            
+            if (openInfo.isLikelyReal) {
                 email.lastOpened = openEvent.timestamp;
-                email.openCount = email.opens.filter(o => !o.isBot).length;
             }
             
             await writeData(data);
