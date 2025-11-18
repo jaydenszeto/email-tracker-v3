@@ -8,6 +8,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'tracking-data.json');
 
+// Grace period: ignore opens within this many seconds after tracking link creation
+const GRACE_PERIOD_SECONDS = 60;
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -95,6 +98,15 @@ function detectOpenType(userAgent, headers) {
     return { type: 'unknown', isLikelyReal: true };
 }
 
+// Check if open is within grace period
+function isWithinGracePeriod(emailCreatedAt, openTimestamp) {
+    const createdTime = new Date(emailCreatedAt).getTime();
+    const openTime = new Date(openTimestamp).getTime();
+    const diffSeconds = (openTime - createdTime) / 1000;
+    
+    return diffSeconds < GRACE_PERIOD_SECONDS;
+}
+
 // Create tracking pixel endpoint - GET request
 app.get('/track/:id', async (req, res) => {
     const trackId = req.params.id;
@@ -110,13 +122,17 @@ app.get('/track/:id', async (req, res) => {
         const email = data.emails.find(e => e.trackingId === trackId);
         
         if (email) {
+            const now = new Date().toISOString();
+            const inGracePeriod = isWithinGracePeriod(email.createdAt, now);
+            
             const openEvent = {
-                timestamp: new Date().toISOString(),
+                timestamp: now,
                 userAgent,
                 ip: ip.replace('::ffff:', ''), // Clean IPv6 prefix
                 referer,
                 openType: openInfo.type,
                 isReal: openInfo.isLikelyReal,
+                inGracePeriod: inGracePeriod,
                 headers: {
                     via: req.headers['via'] || null,
                     accept: req.headers['accept'] || null,
@@ -127,11 +143,11 @@ app.get('/track/:id', async (req, res) => {
             email.opens = email.opens || [];
             email.opens.push(openEvent);
             
-            // Update counts and last opened
-            const realOpens = email.opens.filter(o => o.isReal);
-            email.openCount = realOpens.length;
+            // Update counts and last opened (only for real opens OUTSIDE grace period)
+            const validOpens = email.opens.filter(o => o.isReal && !o.inGracePeriod);
+            email.openCount = validOpens.length;
             
-            if (openInfo.isLikelyReal) {
+            if (openInfo.isLikelyReal && !inGracePeriod) {
                 email.lastOpened = openEvent.timestamp;
             }
             

@@ -269,11 +269,12 @@
             border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 8px;
             padding: 14px;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             color: rgba(255, 255, 255, 0.8);
             word-break: break-all;
             font-family: 'IBM Plex Mono', monospace;
             margin-top: 16px;
+            overflow-wrap: break-word;
         }
 
         .instructions-box {
@@ -387,7 +388,7 @@
                         </div>
                         
                         <div class="instruction-step">
-                            The image will be invisible (1x1 pixel) - Gmail handles this automatically
+                            Note: Opens within first 60 seconds are ignored (while you're composing)
                         </div>
                     </div>
                     
@@ -515,35 +516,50 @@
             }
         }
 
-        function formatDate(isoString) {
+        function formatTimestamp(isoString) {
             const date = new Date(isoString);
             const now = new Date();
-            const diffMs = now - date;
-            const diffMins = Math.floor(diffMs / 60000);
-            const diffHours = Math.floor(diffMs / 3600000);
-            const diffDays = Math.floor(diffMs / 86400000);
-
-            if (diffMins < 1) return 'just now';
-            if (diffMins < 60) return `${diffMins}m ago`;
-            if (diffHours < 24) return `${diffHours}h ago`;
-            if (diffDays < 7) return `${diffDays}d ago`;
             
-            return date.toLocaleDateString('en-US', { 
+            const timeStr = date.toLocaleTimeString('en-US', { 
+                hour: 'numeric', 
+                minute: '2-digit',
+                hour12: true 
+            });
+            
+            // If today, just show time
+            if (date.toDateString() === now.toDateString()) {
+                return `today at ${timeStr}`;
+            }
+            
+            // If yesterday
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            if (date.toDateString() === yesterday.toDateString()) {
+                return `yesterday at ${timeStr}`;
+            }
+            
+            // Otherwise show date + time
+            const dateStr = date.toLocaleDateString('en-US', { 
                 month: 'short', 
                 day: 'numeric',
                 year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
             });
+            
+            return `${dateStr} at ${timeStr}`;
         }
 
         function renderEmail(email) {
-            const realOpens = email.opens.filter(o => o.isReal);
-            const botOpens = email.opens.filter(o => !o.isReal);
-            const hasRealOpens = realOpens.length > 0;
+            // Only count opens that are real AND outside grace period
+            const validOpens = email.opens.filter(o => o.isReal && !o.inGracePeriod);
+            const gracePeriodOpens = email.opens.filter(o => o.inGracePeriod);
+            const botOpens = email.opens.filter(o => !o.isReal && !o.inGracePeriod);
+            
+            const hasValidOpens = validOpens.length > 0;
             const hasBotOpens = botOpens.length > 0;
 
             let statusHtml = '';
-            if (hasRealOpens) {
-                statusHtml = `<span class="status-badge status-opened">opened ${realOpens.length}x</span>`;
+            if (hasValidOpens) {
+                statusHtml = `<span class="status-badge status-opened">opened ${validOpens.length}x</span>`;
             } else if (hasBotOpens) {
                 statusHtml = `<span class="status-badge status-bot">bot only</span>`;
             } else {
@@ -551,15 +567,15 @@
             }
 
             const lastOpenedText = email.lastOpened 
-                ? `<span class="info-badge">last opened ${formatDate(email.lastOpened)}</span>`
+                ? `<span class="info-badge">last opened ${formatTimestamp(email.lastOpened)}</span>`
                 : '';
 
             let opensDetailsHtml = '';
-            if (realOpens.length > 0) {
+            if (validOpens.length > 0) {
                 opensDetailsHtml = '<div class="mt-5"><div class="text-xs text-white text-opacity-60 mb-3 font-medium" style="letter-spacing: 0.05rem;">OPENS:</div>';
-                realOpens.slice(0, 5).forEach(open => {
-                    const timestamp = formatDate(open.timestamp);
-                    const userAgent = open.userAgent.substring(0, 80) + (open.userAgent.length > 80 ? '...' : '');
+                validOpens.slice(0, 10).forEach(open => {
+                    const timestamp = formatTimestamp(open.timestamp);
+                    const userAgent = open.userAgent.substring(0, 100) + (open.userAgent.length > 100 ? '...' : '');
                     const typeBadge = getOpenTypeBadge(open.openType);
                     opensDetailsHtml += `
                         <div class="open-detail">
@@ -571,10 +587,16 @@
                         </div>
                     `;
                 });
-                if (realOpens.length > 5) {
-                    opensDetailsHtml += `<div class="text-xs text-white text-opacity-40 mt-3">+ ${realOpens.length - 5} more opens</div>`;
+                if (validOpens.length > 10) {
+                    opensDetailsHtml += `<div class="text-xs text-white text-opacity-40 mt-3">+ ${validOpens.length - 10} more opens</div>`;
                 }
                 opensDetailsHtml += '</div>';
+            }
+
+            // Show grace period note if there are opens in grace period
+            let gracePeriodNote = '';
+            if (gracePeriodOpens.length > 0) {
+                gracePeriodNote = `<div class="text-xs text-white text-opacity-40 mt-3">(${gracePeriodOpens.length} opens ignored - within 60s grace period)</div>`;
             }
 
             return `
@@ -583,7 +605,7 @@
                         <div class="flex-1">
                             <div class="email-subject">${escapeHtml(email.subject)}</div>
                             <div class="email-meta">
-                                to: ${escapeHtml(email.recipient)} • created ${formatDate(email.createdAt)}
+                                to: ${escapeHtml(email.recipient)} • created ${formatTimestamp(email.createdAt)}
                             </div>
                         </div>
                         <div class="flex items-center gap-3">
@@ -595,6 +617,7 @@
                     ${lastOpenedText ? `<div class="mb-4">${lastOpenedText}</div>` : ''}
                     
                     ${opensDetailsHtml}
+                    ${gracePeriodNote}
                     
                     <div class="mt-5">
                         <div class="text-xs text-white text-opacity-60 mb-2 font-medium" style="letter-spacing: 0.05rem;">TRACKING URL:</div>
