@@ -72,8 +72,8 @@ function injectTrackingPixel(composeWindow, trackingUrl) {
             return false;
         }
 
-        // Create the tracking pixel HTML
-        const pixelHtml = `<img src="${trackingUrl}" width="1" height="1" style="display:none !important; visibility:hidden !important;" />`;
+        // Create the tracking pixel HTML - completely invisible
+        const pixelHtml = `<img src="${trackingUrl}" width="1" height="1" style="display:none !important; visibility:hidden !important; opacity:0 !important; position:absolute !important;" alt="" />`;
         
         // Insert at the end of the email
         const range = document.createRange();
@@ -93,6 +93,7 @@ function injectTrackingPixel(composeWindow, trackingUrl) {
         
         // Add a marker so we know this compose has been processed
         composeWindow.setAttribute('data-tracker-injected', 'true');
+        composeWindow.setAttribute('data-tracking-url', trackingUrl);
         
         console.log('Email Tracker: Pixel injected successfully');
         return true;
@@ -102,8 +103,8 @@ function injectTrackingPixel(composeWindow, trackingUrl) {
     }
 }
 
-// Function to add visual indicator
-function addVisualIndicator(composeWindow) {
+// Function to add PROMINENT visual indicator
+function addVisualIndicator(composeWindow, trackingUrl) {
     // Check if indicator already exists
     if (composeWindow.querySelector('.email-tracker-indicator')) {
         return;
@@ -111,29 +112,76 @@ function addVisualIndicator(composeWindow) {
 
     const indicator = document.createElement('div');
     indicator.className = 'email-tracker-indicator';
-    indicator.innerHTML = '📊 Tracking enabled';
-    indicator.style.cssText = `
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        background: rgba(34, 197, 94, 0.1);
-        border: 1px solid rgba(34, 197, 94, 0.3);
-        color: rgba(34, 197, 94, 1);
-        padding: 6px 12px;
-        border-radius: 6px;
-        font-family: 'IBM Plex Mono', monospace;
-        font-size: 11px;
-        z-index: 1000;
-        pointer-events: none;
+    
+    // Make it more prominent with animation
+    indicator.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: 8px; height: 8px; background: #22c55e; border-radius: 50%; animation: pulse 2s infinite;"></div>
+            <span>📊 Email Tracking Active</span>
+        </div>
+        <div style="font-size: 10px; opacity: 0.7; margin-top: 4px;">Invisible pixel added to email</div>
     `;
     
-    composeWindow.style.position = 'relative';
-    composeWindow.appendChild(indicator);
+    indicator.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.95);
+        border: 2px solid rgba(34, 197, 94, 0.5);
+        color: rgba(34, 197, 94, 1);
+        padding: 12px 16px;
+        border-radius: 8px;
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 12px;
+        z-index: 10000;
+        box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
+        backdrop-filter: blur(10px);
+        animation: slideIn 0.3s ease-out;
+    `;
+    
+    // Add click to view tracking URL
+    indicator.style.cursor = 'pointer';
+    indicator.title = 'Click to view tracking URL';
+    indicator.onclick = () => {
+        alert(`Tracking URL:\n\n${trackingUrl}\n\nThis invisible pixel was added to your email. When the recipient opens it, you'll see the open in your dashboard!`);
+    };
+    
+    // Add animation styles
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+    
+    document.body.appendChild(indicator);
+    
+    // Auto-hide after 8 seconds with fade out
+    setTimeout(() => {
+        indicator.style.transition = 'opacity 0.5s ease-out';
+        indicator.style.opacity = '0';
+        setTimeout(() => indicator.remove(), 500);
+    }, 8000);
 }
 
 // Main function to process compose window
 async function processComposeWindow(composeWindow) {
-    if (!AUTO_TRACK_ENABLED) return;
+    if (!AUTO_TRACK_ENABLED) {
+        console.log('Email Tracker: Auto-tracking is disabled');
+        return;
+    }
     
     // Check if already processed
     if (composeWindow.getAttribute('data-tracker-injected') === 'true') {
@@ -153,7 +201,7 @@ async function processComposeWindow(composeWindow) {
     console.log('Email Tracker: Processing compose window', composeId);
 
     // Wait a bit for the compose window to fully load
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Get email details
     const subject = getEmailSubject(composeWindow);
@@ -170,7 +218,9 @@ async function processComposeWindow(composeWindow) {
         
         if (success) {
             processedComposeIds.add(composeId);
-            addVisualIndicator(composeWindow);
+            addVisualIndicator(composeWindow, trackingUrl);
+            
+            console.log('Email Tracker: SUCCESS - Tracking added to email');
             
             // Show notification
             chrome.runtime.sendMessage({
@@ -178,6 +228,27 @@ async function processComposeWindow(composeWindow) {
                 subject: subject
             });
         }
+    } else {
+        console.error('Email Tracker: Failed to create tracking URL');
+        
+        // Show error indicator
+        const errorIndicator = document.createElement('div');
+        errorIndicator.innerHTML = '⚠️ Tracking Failed - Check server connection';
+        errorIndicator.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(239, 68, 68, 0.2);
+            border: 2px solid rgba(239, 68, 68, 0.5);
+            color: rgba(239, 68, 68, 1);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            z-index: 10000;
+        `;
+        document.body.appendChild(errorIndicator);
+        setTimeout(() => errorIndicator.remove(), 5000);
     }
 }
 
@@ -201,24 +272,30 @@ function startObserving() {
         subtree: true
     });
     
-    console.log('Email Tracker: Observer started');
+    console.log('Email Tracker: Observer started - watching for compose windows');
 }
 
 // Initialize when Gmail is ready
 function init() {
+    console.log('Email Tracker: Initializing...');
+    
     // Wait for Gmail to load
     const checkGmailLoaded = setInterval(() => {
         if (document.querySelector('div[role="main"]')) {
             clearInterval(checkGmailLoaded);
-            console.log('Email Tracker: Gmail loaded, starting observer');
+            console.log('Email Tracker: Gmail loaded successfully!');
             startObserving();
             
             // Process any existing compose windows
             const existingComposeWindows = document.querySelectorAll('div[role="dialog"][aria-label*="compose" i]');
-            existingComposeWindows.forEach(processComposeWindow);
+            if (existingComposeWindows.length > 0) {
+                console.log(`Email Tracker: Found ${existingComposeWindows.length} existing compose windows`);
+                existingComposeWindows.forEach(processComposeWindow);
+            }
         }
     }, 1000);
 }
 
 // Start initialization
+console.log('Email Tracker: Starting initialization');
 init();

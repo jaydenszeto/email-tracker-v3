@@ -13,7 +13,7 @@
         }
 
         body {
-            width: 350px;
+            width: 380px;
             font-family: 'IBM Plex Mono', monospace;
             background: #000000;
             color: rgba(255, 255, 255, 0.87);
@@ -201,10 +201,45 @@
             line-height: 1.5;
         }
 
+        .highlight-box {
+            background: rgba(255, 238, 226, 0.05);
+            border: 1px solid rgba(255, 238, 226, 0.15);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 16px;
+        }
+
+        .highlight-title {
+            font-size: 0.8rem;
+            color: rgba(255, 238, 226, 0.9);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .step {
+            font-size: 0.7rem;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 6px;
+            padding-left: 16px;
+            position: relative;
+        }
+
+        .step::before {
+            content: '→';
+            position: absolute;
+            left: 0;
+            color: rgba(255, 238, 226, 0.6);
+        }
+
         .divider {
             height: 1px;
             background: rgba(255, 255, 255, 0.05);
             margin: 16px 0;
+        }
+
+        .emoji-large {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
         }
     </style>
 </head>
@@ -216,6 +251,15 @@
 
     <div id="status" class="status status-active">
         ✓ Auto-tracking enabled
+    </div>
+
+    <div class="highlight-box">
+        <div class="emoji-large">🟢</div>
+        <div class="highlight-title">Look for the green popup!</div>
+        <div class="step">Compose an email in Gmail</div>
+        <div class="step">Wait 2-3 seconds</div>
+        <div class="step">Green "Tracking Active" popup appears</div>
+        <div class="step">Send your email!</div>
     </div>
 
     <div class="section">
@@ -238,11 +282,11 @@
     </div>
 
     <div class="section">
-        <div class="section-title">How it works</div>
+        <div class="section-title">Quick Info</div>
         <p class="info-text">
-            When enabled, this extension automatically adds an invisible tracking pixel to every email you compose in Gmail. 
+            When enabled, a <strong style="color: rgba(34, 197, 94, 1);">green popup</strong> appears bottom-right when you compose emails.
             <br><br>
-            The pixel tracks when recipients open your emails, including their device, browser, and location info.
+            Click it to see the tracking URL. Opens are tracked after 60 seconds.
         </p>
     </div>
 

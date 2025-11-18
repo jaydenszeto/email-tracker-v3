@@ -19,7 +19,7 @@
             background-color: #000000;
         }
 
-        body { 
+        body {
             font-family: 'IBM Plex Mono', monospace;
             background: #000000;
             color: rgba(255, 255, 255, 0.87);
@@ -349,18 +349,18 @@
         <div class="glass-card mb-10">
             <div class="p-8">
                 <h2 class="text-lg font-medium text-white text-opacity-95 mb-6" style="letter-spacing: 0.03rem;">create new tracking link</h2>
-                
+
                 <div class="space-y-5">
                     <div>
                         <label class="label-text block mb-2">email subject</label>
                         <input type="text" id="subject-input" placeholder="weekly newsletter">
                     </div>
-                    
+
                     <div>
                         <label class="label-text block mb-2">recipient (optional)</label>
                         <input type="text" id="recipient-input" placeholder="john@example.com">
                     </div>
-                    
+
                     <button id="create-btn" class="action-button w-full mt-2">
                         create tracking link
                     </button>
@@ -369,36 +369,36 @@
                 <!-- Success Message -->
                 <div id="success-message" class="hidden">
                     <div class="section-divider"></div>
-                    
+
                     <div class="instructions-box">
                         <div class="text-sm text-white text-opacity-90 mb-4 font-medium">
                             ✓ tracking link created!
                         </div>
-                        
+
                         <div class="text-xs text-white text-opacity-60 mb-4 font-medium" style="letter-spacing: 0.05rem;">
                             HOW TO ADD TO YOUR EMAIL:
                         </div>
-                        
+
                         <div class="instruction-step">
                             In Gmail: Click the image icon (📷), select "Web Address (URL)", paste the tracking URL below
                         </div>
-                        
+
                         <div class="instruction-step">
                             Or use the Chrome extension for automatic tracking!
                         </div>
-                        
+
                         <div class="instruction-step">
-                            Note: Opens within first 60 seconds are ignored (while you're composing)
+                            Note: Opens within first 45 seconds are ignored (while you're composing)
                         </div>
                     </div>
-                    
+
                     <div class="mt-5">
                         <div class="text-xs text-white text-opacity-60 mb-2 font-medium" style="letter-spacing: 0.05rem;">
                             TRACKING URL:
                         </div>
                         <div class="tracking-url-box" id="created-url"></div>
                     </div>
-                    
+
                     <div class="flex gap-3 mt-4">
                         <button id="copy-url-btn" class="copy-button flex-1">
                             copy tracking url
@@ -423,7 +423,7 @@
                         </button>
                     </div>
                 </div>
-                
+
                 <div id="emails-container">
                     <!-- Emails will be inserted here -->
                 </div>
@@ -519,32 +519,32 @@
         function formatTimestamp(isoString) {
             const date = new Date(isoString);
             const now = new Date();
-            
-            const timeStr = date.toLocaleTimeString('en-US', { 
-                hour: 'numeric', 
+
+            const timeStr = date.toLocaleTimeString('en-US', {
+                hour: 'numeric',
                 minute: '2-digit',
-                hour12: true 
+                hour12: true
             });
-            
+
             // If today, just show time
             if (date.toDateString() === now.toDateString()) {
                 return `today at ${timeStr}`;
             }
-            
+
             // If yesterday
             const yesterday = new Date(now);
             yesterday.setDate(yesterday.getDate() - 1);
             if (date.toDateString() === yesterday.toDateString()) {
                 return `yesterday at ${timeStr}`;
             }
-            
+
             // Otherwise show date + time
-            const dateStr = date.toLocaleDateString('en-US', { 
-                month: 'short', 
+            const dateStr = date.toLocaleDateString('en-US', {
+                month: 'short',
                 day: 'numeric',
                 year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
             });
-            
+
             return `${dateStr} at ${timeStr}`;
         }
 
@@ -553,7 +553,7 @@
             const validOpens = email.opens.filter(o => o.isReal && !o.inGracePeriod);
             const gracePeriodOpens = email.opens.filter(o => o.inGracePeriod);
             const botOpens = email.opens.filter(o => !o.isReal && !o.inGracePeriod);
-            
+
             const hasValidOpens = validOpens.length > 0;
             const hasBotOpens = botOpens.length > 0;
 
@@ -566,7 +566,7 @@
                 statusHtml = `<span class="status-badge status-unopened">not opened</span>`;
             }
 
-            const lastOpenedText = email.lastOpened 
+            const lastOpenedText = email.lastOpened
                 ? `<span class="info-badge">last opened ${formatTimestamp(email.lastOpened)}</span>`
                 : '';
 
@@ -576,16 +576,16 @@
                 validOpens.slice(0, 10).forEach(open => {
                     const timestamp = formatTimestamp(open.timestamp);
                     const typeBadge = getOpenTypeBadge(open.openType);
-                    
+
                     // Device info
                     let deviceInfo = '';
                     if (open.deviceInfo) {
                         deviceInfo = `${open.deviceInfo.device} • ${open.deviceInfo.os} • ${open.deviceInfo.browser}`;
                     }
-                    
+
                     // IP address
                     const ipInfo = open.ip ? `IP: ${open.ip}` : '';
-                    
+
                     opensDetailsHtml += `
                         <div class="open-detail">
                             <div class="mb-2">
@@ -623,19 +623,19 @@
                             <button class="delete-button" onclick="deleteEmail('${email.id}')">delete</button>
                         </div>
                     </div>
-                    
+
                     ${lastOpenedText ? `<div class="mb-4">${lastOpenedText}</div>` : ''}
-                    
+
                     ${opensDetailsHtml}
                     ${gracePeriodNote}
-                    
+
                     <div class="mt-5">
                         <div class="text-xs text-white text-opacity-60 mb-2 font-medium" style="letter-spacing: 0.05rem;">TRACKING URL:</div>
                         <div class="tracking-url-box">
                             ${escapeHtml(email.trackingUrl)}
                         </div>
                     </div>
-                    
+
                     <div class="flex gap-3 mt-4">
                         <button class="copy-button" onclick="copyToClipboard('${email.trackingUrl}', 'URL copied!')">
                             copy tracking url
