@@ -384,7 +384,7 @@
                         </div>
                         
                         <div class="instruction-step">
-                            Or use an email service that supports HTML (Mailchimp, SendGrid, etc.)
+                            Or use the Chrome extension for automatic tracking!
                         </div>
                         
                         <div class="instruction-step">
@@ -575,15 +575,25 @@
                 opensDetailsHtml = '<div class="mt-5"><div class="text-xs text-white text-opacity-60 mb-3 font-medium" style="letter-spacing: 0.05rem;">OPENS:</div>';
                 validOpens.slice(0, 10).forEach(open => {
                     const timestamp = formatTimestamp(open.timestamp);
-                    const userAgent = open.userAgent.substring(0, 100) + (open.userAgent.length > 100 ? '...' : '');
                     const typeBadge = getOpenTypeBadge(open.openType);
+                    
+                    // Device info
+                    let deviceInfo = '';
+                    if (open.deviceInfo) {
+                        deviceInfo = `${open.deviceInfo.device} • ${open.deviceInfo.os} • ${open.deviceInfo.browser}`;
+                    }
+                    
+                    // IP address
+                    const ipInfo = open.ip ? `IP: ${open.ip}` : '';
+                    
                     opensDetailsHtml += `
                         <div class="open-detail">
                             <div class="mb-2">
                                 ${typeBadge}
                                 <span class="text-white text-opacity-70">${timestamp}</span>
                             </div>
-                            <div class="text-white text-opacity-50">${escapeHtml(userAgent)}</div>
+                            ${deviceInfo ? `<div class="text-white text-opacity-60 text-xs mb-1">${escapeHtml(deviceInfo)}</div>` : ''}
+                            ${ipInfo ? `<div class="text-white text-opacity-40 text-xs">${escapeHtml(ipInfo)}</div>` : ''}
                         </div>
                     `;
                 });
