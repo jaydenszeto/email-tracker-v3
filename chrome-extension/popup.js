@@ -11,7 +11,11 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.sync.get(['apiUrl', 'autoTrack'], (result) => {
         if (result.apiUrl) {
             apiUrlInput.value = result.apiUrl;
+        } else {
+            // Set default
+            apiUrlInput.value = 'https://email-tracker-v3.onrender.com';
         }
+        
         if (result.autoTrack !== undefined) {
             autoTrackToggle.checked = result.autoTrack;
             updateStatus(result.autoTrack);
@@ -40,8 +44,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const apiUrl = apiUrlInput.value.trim();
         const autoTrack = autoTrackToggle.checked;
 
+        // Remove trailing slash if present
+        const cleanUrl = apiUrl.replace(/\/$/, '');
+
         chrome.storage.sync.set({ 
-            apiUrl: apiUrl, 
+            apiUrl: cleanUrl, 
             autoTrack: autoTrack 
         }, () => {
             // Show success feedback
@@ -53,13 +60,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 saveSettingsBtn.textContent = originalText;
                 saveSettingsBtn.style.background = '';
             }, 2000);
+            
+            console.log('Settings saved:', { apiUrl: cleanUrl, autoTrack });
         });
     });
 
     // Open dashboard
     openDashboardBtn.addEventListener('click', () => {
         chrome.storage.sync.get(['apiUrl'], (result) => {
-            const dashboardUrl = result.apiUrl || 'http://localhost:3000';
+            const dashboardUrl = result.apiUrl || 'https://email-tracker-v3.onrender.com';
             chrome.tabs.create({ url: dashboardUrl });
         });
     });
