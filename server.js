@@ -1,39 +1,68 @@
 const express = require("express");
 const cors = require("cors");
-const fs = require("fs").promises;
-const path = require("path");
+const mongoose = require("mongoose");
 const { v4: uuidv4 } = require("uuid");
 const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DATA_FILE = path.join(__dirname, "tracking-data.json");
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/email-tracker";
 
-const GRACE_PERIOD_SECONDS = 15;
+const GRACE_PERIOD_SECONDS = 45;
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
-async function initDataFile() {
-  try {
-    await fs.access(DATA_FILE);
-  } catch {
-    await fs.writeFile(DATA_FILE, JSON.stringify({ users: {} }, null, 2));
-  }
-}
+// MongoDB Schema
+const emailSchema = new mongoose.Schema({
+  id: String,
+  trackingId: String,
+  trackingUrl: String,
+  subject: String,
+  recipient: String,
+  createdAt: String,
+  opens: [{
+    timestamp: String,
+    userAgent: String,
+    ip: String,
+    referer: String,
+    openType: String,
+    isReal: Boolean,
+    inGracePeriod: Boolean,
+    deviceInfo: {
+      os: String,
+      browser: String,
+      device: String
+    },
+    headers: {
+      via: String,
+      accept: String,
+      acceptLanguage: String,
+      acceptEncoding: String
+    }
+  }],
+  openCount: Number,
+  lastOpened: String
+});
 
-async function readData() {
-  try {
-    const data = await fs.readFile(DATA_FILE, "utf8");
-    return JSON.parse(data);
-  } catch {
-    return { users: {} };
-  }
-}
+const userSchema = new mongoose.Schema({
+  apiKey: { type: String, unique: true, required: true },
+  createdAt: String,
+  emails: [emailSchema]
+});
 
-async function writeData(data) {
-  await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
+const User = mongoose.model("User", userSchema);
+
+// Connect to MongoDB
+async function connectDB() {
+  try {
+    await mongoose.connect(MONGODB_URI);
+    console.log("✅ Connected to MongoDB");
+  } catch (error) {
+    console.error("❌ MongoDB connection error:", error);
+    process.exit(1);
+  }
 }
 
 function generateApiKey() {
@@ -173,7 +202,7 @@ function isWithinGracePeriod(emailCreatedAt, openTimestamp) {
 }
 
 // Middleware to validate API key
-function validateApiKey(req, res, next) {
+async function validateApiKey(req, res, next) {
   const apiKey = req.headers["x-api-key"] || req.query.apiKey;
 
   if (!apiKey) {
@@ -188,15 +217,14 @@ function validateApiKey(req, res, next) {
 app.post("/api/auth/generate-key", async (req, res) => {
   try {
     const apiKey = generateApiKey();
-    const data = await readData();
 
-    if (!data.users[apiKey]) {
-      data.users[apiKey] = {
-        emails: [],
-        createdAt: new Date().toISOString(),
-      };
-      await writeData(data);
-    }
+    const user = new User({
+      apiKey,
+      createdAt: new Date().toISOString(),
+      emails: []
+    });
+
+    await user.save();
 
     res.json({ apiKey });
   } catch (error) {
@@ -226,59 +254,50 @@ app.get("/track/:id", async (req, res) => {
   const openInfo = detectOpenType(userAgent, req.headers);
 
   try {
-    const data = await readData();
+    // Find user with this tracking ID
+    const user = await User.findOne({ "emails.trackingId": trackId });
 
-    // Find email across all users
-    let foundUser = null;
-    let email = null;
+    if (user) {
+      const email = user.emails.find((e) => e.trackingId === trackId);
 
-    for (const [userId, userData] of Object.entries(data.users)) {
-      const foundEmail = userData.emails.find((e) => e.trackingId === trackId);
-      if (foundEmail) {
-        foundUser = userId;
-        email = foundEmail;
-        break;
+      if (email) {
+        const now = new Date().toISOString();
+        const inGracePeriod = isWithinGracePeriod(email.createdAt, now);
+
+        const openEvent = {
+          timestamp: now,
+          userAgent,
+          ip,
+          referer,
+          openType: openInfo.type,
+          isReal: openInfo.isLikelyReal,
+          inGracePeriod: inGracePeriod,
+          deviceInfo: {
+            os: deviceInfo.os,
+            browser: deviceInfo.browser,
+            device: deviceInfo.device,
+          },
+          headers: {
+            via: req.headers["via"] || null,
+            accept: req.headers["accept"] || null,
+            acceptLanguage: req.headers["accept-language"] || null,
+            acceptEncoding: req.headers["accept-encoding"] || null,
+          },
+        };
+
+        email.opens.push(openEvent);
+
+        const validOpens = email.opens.filter(
+          (o) => o.isReal && !o.inGracePeriod
+        );
+        email.openCount = validOpens.length;
+
+        if (openInfo.isLikelyReal && !inGracePeriod) {
+          email.lastOpened = openEvent.timestamp;
+        }
+
+        await user.save();
       }
-    }
-
-    if (email && foundUser) {
-      const now = new Date().toISOString();
-      const inGracePeriod = isWithinGracePeriod(email.createdAt, now);
-
-      const openEvent = {
-        timestamp: now,
-        userAgent,
-        ip,
-        referer,
-        openType: openInfo.type,
-        isReal: openInfo.isLikelyReal,
-        inGracePeriod: inGracePeriod,
-        deviceInfo: {
-          os: deviceInfo.os,
-          browser: deviceInfo.browser,
-          device: deviceInfo.device,
-        },
-        headers: {
-          via: req.headers["via"] || null,
-          accept: req.headers["accept"] || null,
-          acceptLanguage: req.headers["accept-language"] || null,
-          acceptEncoding: req.headers["accept-encoding"] || null,
-        },
-      };
-
-      email.opens = email.opens || [];
-      email.opens.push(openEvent);
-
-      const validOpens = email.opens.filter(
-        (o) => o.isReal && !o.inGracePeriod
-      );
-      email.openCount = validOpens.length;
-
-      if (openInfo.isLikelyReal && !inGracePeriod) {
-        email.lastOpened = openEvent.timestamp;
-      }
-
-      await writeData(data);
     }
   } catch (error) {
     console.error("Error tracking open:", error);
@@ -308,14 +327,14 @@ app.post("/api/emails", validateApiKey, async (req, res) => {
       return res.status(400).json({ error: "Subject is required" });
     }
 
-    const data = await readData();
+    let user = await User.findOne({ apiKey: req.apiKey });
 
-    // Initialize user if doesn't exist
-    if (!data.users[req.apiKey]) {
-      data.users[req.apiKey] = {
-        emails: [],
+    if (!user) {
+      user = new User({
+        apiKey: req.apiKey,
         createdAt: new Date().toISOString(),
-      };
+        emails: []
+      });
     }
 
     const trackingId = uuidv4();
@@ -335,8 +354,8 @@ app.post("/api/emails", validateApiKey, async (req, res) => {
       lastOpened: null,
     };
 
-    data.users[req.apiKey].emails.unshift(newEmail);
-    await writeData(data);
+    user.emails.unshift(newEmail);
+    await user.save();
 
     res.json(newEmail);
   } catch (error) {
@@ -348,13 +367,13 @@ app.post("/api/emails", validateApiKey, async (req, res) => {
 // Get all tracked emails for user
 app.get("/api/emails", validateApiKey, async (req, res) => {
   try {
-    const data = await readData();
+    const user = await User.findOne({ apiKey: req.apiKey });
 
-    if (!data.users[req.apiKey]) {
+    if (!user) {
       return res.json([]);
     }
 
-    const sortedEmails = data.users[req.apiKey].emails.sort(
+    const sortedEmails = user.emails.sort(
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
     );
     res.json(sortedEmails);
@@ -367,15 +386,13 @@ app.get("/api/emails", validateApiKey, async (req, res) => {
 // Get specific email details
 app.get("/api/emails/:id", validateApiKey, async (req, res) => {
   try {
-    const data = await readData();
+    const user = await User.findOne({ apiKey: req.apiKey });
 
-    if (!data.users[req.apiKey]) {
+    if (!user) {
       return res.status(404).json({ error: "Email not found" });
     }
 
-    const email = data.users[req.apiKey].emails.find(
-      (e) => e.id === req.params.id
-    );
+    const email = user.emails.find((e) => e.id === req.params.id);
 
     if (!email) {
       return res.status(404).json({ error: "Email not found" });
@@ -391,22 +408,20 @@ app.get("/api/emails/:id", validateApiKey, async (req, res) => {
 // Delete tracked email
 app.delete("/api/emails/:id", validateApiKey, async (req, res) => {
   try {
-    const data = await readData();
+    const user = await User.findOne({ apiKey: req.apiKey });
 
-    if (!data.users[req.apiKey]) {
+    if (!user) {
       return res.status(404).json({ error: "Email not found" });
     }
 
-    const index = data.users[req.apiKey].emails.findIndex(
-      (e) => e.id === req.params.id
-    );
+    const emailIndex = user.emails.findIndex((e) => e.id === req.params.id);
 
-    if (index === -1) {
+    if (emailIndex === -1) {
       return res.status(404).json({ error: "Email not found" });
     }
 
-    data.users[req.apiKey].emails.splice(index, 1);
-    await writeData(data);
+    user.emails.splice(emailIndex, 1);
+    await user.save();
 
     res.json({ message: "Email deleted successfully" });
   } catch (error) {
@@ -416,9 +431,9 @@ app.delete("/api/emails/:id", validateApiKey, async (req, res) => {
 });
 
 async function startServer() {
-  await initDataFile();
+  await connectDB();
   app.listen(PORT, () => {
-    console.log(`Email tracker server running on http://localhost:${PORT}`);
+    console.log(`Email tracker server running on port ${PORT}`);
   });
 }
 
