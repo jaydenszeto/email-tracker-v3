@@ -3,6 +3,25 @@
 
 let apiKey = localStorage.getItem('emailTrackerApiKey') || '';
 
+// Check if API key is in URL hash (from extension)
+function checkUrlForApiKey() {
+    const hash = window.location.hash;
+    if (hash && hash.includes('apiKey=')) {
+        const urlKey = hash.split('apiKey=')[1].split('&')[0];
+        if (urlKey && urlKey.length > 0) {
+            console.log('🔑 Found API key in URL from extension');
+            apiKey = urlKey;
+            localStorage.setItem('emailTrackerApiKey', apiKey);
+            localStorage.setItem('emailTrackerSource', 'extension');
+            // Clean up URL
+            window.history.replaceState(null, null, window.location.pathname);
+            console.log('✅ API key from extension saved to localStorage');
+            return true;
+        }
+    }
+    return false;
+}
+
 // Auto-register user and get API key
 async function registerUser() {
     try {
@@ -22,6 +41,7 @@ async function registerUser() {
             apiKey = data.apiKey;
             localStorage.setItem('emailTrackerApiKey', apiKey);
             localStorage.setItem('emailTrackerUserId', data.userId);
+            localStorage.setItem('emailTrackerSource', 'dashboard');
             console.log('✅ User registered! User ID:', data.userId);
             console.log('✅ API key saved to localStorage');
             console.log('🎉 You can now track emails!');
@@ -33,10 +53,27 @@ async function registerUser() {
     }
 }
 
-// Initialize API key - register if needed
+// Initialize API key - check URL first, then register if needed
 async function initApiKey() {
+    // First, check if API key is in URL (from extension)
+    const fromUrl = checkUrlForApiKey();
+    
+    if (fromUrl) {
+        console.log('✅ Using API key from extension');
+        const source = localStorage.getItem('emailTrackerSource');
+        console.log('📱 This dashboard is synced with your extension!');
+        return true;
+    }
+    
+    // Then check localStorage
     if (apiKey) {
         console.log('✅ Using existing API key from localStorage');
+        const source = localStorage.getItem('emailTrackerSource');
+        if (source === 'extension') {
+            console.log('📱 This dashboard is synced with your extension!');
+        } else {
+            console.log('🌐 This dashboard was registered independently');
+        }
         console.log('User ID:', localStorage.getItem('emailTrackerUserId'));
         return true;
     } else {
@@ -45,6 +82,7 @@ async function initApiKey() {
         
         if (success) {
             console.log('✨ Auto-registration complete! Ready to track emails.');
+            console.log('💡 Tip: Install the Chrome extension to auto-track emails from Gmail!');
             return true;
         } else {
             console.error('❌ Auto-registration failed - check server connection');
@@ -67,6 +105,7 @@ async function handleInvalidApiKey() {
     apiKey = '';
     localStorage.removeItem('emailTrackerApiKey');
     localStorage.removeItem('emailTrackerUserId');
+    localStorage.removeItem('emailTrackerSource');
     await initApiKey();
 }
 

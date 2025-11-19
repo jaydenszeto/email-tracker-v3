@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Email Tracker</title>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -13,324 +12,261 @@
         }
 
         body {
-            width: 380px;
-            font-family: 'IBM Plex Mono', monospace;
-            background: #000000;
-            color: rgba(255, 255, 255, 0.87);
-            padding: 20px;
+            width: 350px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0a0a;
+            color: #ffffff;
+            padding: 0;
         }
 
         .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
             text-align: center;
-            margin-bottom: 24px;
         }
 
-        .title {
-            font-size: 1.5rem;
-            font-weight: 300;
-            letter-spacing: 0.1rem;
-            background: linear-gradient(142deg, #ffeee2 0%, #eec9b0 40%, #ffffff 60%, #efb496 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .header p {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .status-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .status-title {
+            font-size: 12px;
+            opacity: 0.7;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
             margin-bottom: 8px;
         }
 
-        .subtitle {
-            font-size: 0.75rem;
-            color: rgba(255, 255, 255, 0.5);
-            letter-spacing: 0.05rem;
+        .status-value {
+            font-size: 14px;
+            font-weight: 500;
+            word-break: break-all;
         }
 
-        .section {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-
-        .section-title {
-            font-size: 0.85rem;
-            color: rgba(255, 255, 255, 0.9);
-            margin-bottom: 12px;
-            letter-spacing: 0.03rem;
-        }
-
-        .toggle-container {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 12px;
-        }
-
-        .toggle-label {
-            font-size: 0.8rem;
-            color: rgba(255, 255, 255, 0.7);
-        }
-
-        .toggle {
-            position: relative;
-            width: 44px;
-            height: 24px;
-        }
-
-        .toggle input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            transition: 0.3s;
-            border-radius: 24px;
-        }
-
-        .toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 16px;
-            width: 16px;
-            left: 3px;
-            bottom: 3px;
-            background-color: rgba(255, 255, 255, 0.8);
-            transition: 0.3s;
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
+            margin-right: 8px;
         }
 
-        .toggle input:checked + .toggle-slider {
-            background-color: rgba(34, 197, 94, 0.2);
-            border-color: rgba(34, 197, 94, 0.4);
+        .status-indicator.active {
+            background: #22c55e;
+            box-shadow: 0 0 10px #22c55e;
         }
 
-        .toggle input:checked + .toggle-slider:before {
-            transform: translateX(20px);
-            background-color: rgba(34, 197, 94, 1);
+        .status-indicator.inactive {
+            background: #ef4444;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
         }
 
         .input-group {
-            margin-bottom: 12px;
+            margin-bottom: 15px;
         }
 
-        .label {
+        .input-group label {
             display: block;
-            font-size: 0.75rem;
-            color: rgba(255, 255, 255, 0.6);
-            margin-bottom: 6px;
-            letter-spacing: 0.03rem;
+            font-size: 12px;
+            margin-bottom: 5px;
+            opacity: 0.8;
         }
 
-        input[type="text"],
-        input[type="password"] {
+        .input-group input {
             width: 100%;
-            background: rgba(255, 255, 255, 0.04);
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.05);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            color: rgba(255, 255, 255, 0.9);
-            font-family: 'IBM Plex Mono', monospace;
             border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 0.75rem;
+            color: white;
+            font-size: 13px;
         }
 
-        input[type="text"]:focus,
-        input[type="password"]:focus {
+        .input-group input:focus {
             outline: none;
-            border-color: rgba(255, 255, 255, 0.25);
-            background: rgba(255, 255, 255, 0.06);
-        }
-
-        .button {
-            width: 100%;
-            background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            color: rgba(255, 255, 255, 0.95);
-            font-family: 'IBM Plex Mono', monospace;
-            font-size: 0.8rem;
-            letter-spacing: 0.05rem;
-            padding: 10px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .button:hover {
-            background: rgba(255, 255, 255, 0.12);
-            border-color: rgba(255, 255, 255, 0.25);
-        }
-
-        .button-primary {
-            background: rgba(34, 197, 94, 0.1);
-            border-color: rgba(34, 197, 94, 0.3);
-            color: rgba(34, 197, 94, 1);
-        }
-
-        .button-primary:hover {
-            background: rgba(34, 197, 94, 0.15);
-            border-color: rgba(34, 197, 94, 0.4);
-        }
-
-        .status {
-            text-align: center;
-            padding: 12px;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            margin-bottom: 16px;
-        }
-
-        .status-active {
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.2);
-            color: rgba(34, 197, 94, 0.9);
-        }
-
-        .status-inactive {
-            background: rgba(251, 191, 36, 0.1);
-            border: 1px solid rgba(251, 191, 36, 0.2);
-            color: rgba(251, 191, 36, 0.9);
-        }
-
-        .info-text {
-            font-size: 0.7rem;
-            color: rgba(255, 255, 255, 0.4);
-            line-height: 1.5;
-        }
-
-        .highlight-box {
-            background: rgba(255, 238, 226, 0.05);
-            border: 1px solid rgba(255, 238, 226, 0.15);
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 16px;
-        }
-
-        .highlight-title {
-            font-size: 0.8rem;
-            color: rgba(255, 238, 226, 0.9);
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
-
-        .step {
-            font-size: 0.7rem;
-            color: rgba(255, 255, 255, 0.6);
-            margin-bottom: 6px;
-            padding-left: 16px;
-            position: relative;
-        }
-
-        .step::before {
-            content: '→';
-            position: absolute;
-            left: 0;
-            color: rgba(255, 238, 226, 0.6);
+            border-color: #667eea;
         }
 
         .divider {
             height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+            margin: 15px 0;
+        }
+
+        .settings-section {
+            display: none;
+        }
+
+        .settings-section.active {
+            display: block;
+        }
+
+        .toggle-settings {
+            color: #667eea;
+            text-align: center;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .toggle-settings:hover {
+            text-decoration: underline;
+        }
+
+        .info-text {
+            font-size: 11px;
+            opacity: 0.6;
+            line-height: 1.5;
+            margin-top: 10px;
+        }
+
+        .api-key-display {
+            font-family: monospace;
+            font-size: 11px;
             background: rgba(255, 255, 255, 0.05);
-            margin: 16px 0;
+            padding: 8px;
+            border-radius: 4px;
+            word-break: break-all;
+            margin-top: 5px;
         }
 
-        .emoji-large {
-            font-size: 1.5rem;
-            margin-bottom: 8px;
+        .success-message {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #22c55e;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-bottom: 15px;
+            display: none;
         }
 
-        .debug-section {
-            background: rgba(59, 130, 246, 0.05);
-            border: 1px solid rgba(59, 130, 246, 0.15);
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 16px;
-        }
-
-        .debug-title {
-            font-size: 0.75rem;
-            color: rgba(59, 130, 246, 0.9);
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
-
-        .debug-text {
-            font-size: 0.7rem;
-            color: rgba(255, 255, 255, 0.5);
-            line-height: 1.4;
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-bottom: 15px;
+            display: none;
         }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1 class="title">email tracker</h1>
-        <p class="subtitle">chrome extension</p>
+        <h1>📊 Email Tracker</h1>
+        <p>Track email opens automatically</p>
     </div>
 
-    <div id="status" class="status status-active">
-        ✓ Auto-tracking enabled
-    </div>
+    <div class="content">
+        <div id="success-message" class="success-message"></div>
+        <div id="error-message" class="error-message"></div>
 
-    <div class="highlight-box">
-        <div class="emoji-large">🟢</div>
-        <div class="highlight-title">Look for the green popup!</div>
-        <div class="step">Compose an email in Gmail</div>
-        <div class="step">Wait 2-3 seconds</div>
-        <div class="step">Green "Tracking Active" popup appears bottom-right</div>
-        <div class="step">Send your email!</div>
-    </div>
-
-    <div class="debug-section">
-        <div class="debug-title">🔍 Debug Tips</div>
-        <div class="debug-text">
-            If green popup doesn't show:
-            <br>• Right-click Gmail → Inspect → Console
-            <br>• Look for "🚀 Email Tracker" messages
-            <br>• Check server URL is correct below
-        </div>
-    </div>
-
-    <div class="section">
-        <div class="section-title">Settings</div>
-        
-        <div class="toggle-container">
-            <span class="toggle-label">Auto-track emails</span>
-            <label class="toggle">
-                <input type="checkbox" id="autoTrack" checked>
-                <span class="toggle-slider"></span>
-            </label>
+        <!-- Status Section -->
+        <div class="status-card">
+            <div class="status-title">Status</div>
+            <div class="status-value">
+                <span class="status-indicator" id="status-indicator"></span>
+                <span id="status-text">Checking...</span>
+            </div>
         </div>
 
-        <div class="input-group">
-            <label class="label">Server URL</label>
-            <input type="text" id="apiUrl" placeholder="https://email-tracker-v3.onrender.com" value="https://email-tracker-v3.onrender.com">
+        <!-- API Key Info -->
+        <div class="status-card">
+            <div class="status-title">Your API Key</div>
+            <div class="status-value" id="api-key-status">Not set</div>
+            <div class="api-key-display" id="api-key-display" style="display: none;"></div>
         </div>
 
-        <div class="input-group">
-            <label class="label">API Key</label>
-            <input type="password" id="apiKey" placeholder="your-secret-api-key-123">
+        <!-- Main Actions -->
+        <button class="btn btn-primary" id="open-dashboard-btn">
+            🎯 Open Dashboard
+        </button>
+
+        <button class="btn btn-secondary" id="refresh-btn">
+            🔄 Refresh Status
+        </button>
+
+        <div class="toggle-settings" id="toggle-settings">
+            ⚙️ Advanced Settings
         </div>
 
-        <button class="button button-primary" id="saveSettings">Save Settings</button>
+        <!-- Settings Section (Hidden by default) -->
+        <div class="settings-section" id="settings-section">
+            <div class="divider"></div>
+
+            <div class="input-group">
+                <label for="server-url">Server URL</label>
+                <input type="text" id="server-url" placeholder="https://email-tracker-v3.onrender.com">
+            </div>
+
+            <div class="input-group">
+                <label for="api-key">API Key (Optional - Auto-generated)</label>
+                <input type="password" id="api-key" placeholder="Leave empty to auto-generate">
+            </div>
+
+            <button class="btn btn-secondary" id="save-btn">
+                💾 Save Settings
+            </button>
+
+            <div class="info-text">
+                💡 Tip: The API key is auto-generated on first use. Only change this if you want to use a specific key from your dashboard.
+            </div>
+        </div>
     </div>
-
-    <div class="section">
-        <div class="section-title">Quick Info</div>
-        <p class="info-text">
-            When enabled, a <strong style="color: rgba(34, 197, 94, 1);">green popup</strong> appears bottom-right when you compose emails.
-            <br><br>
-            Click it to see the tracking URL. Opens are tracked after 60 seconds.
-        </p>
-    </div>
-
-    <div class="divider"></div>
-
-    <button class="button" id="openDashboard">Open Dashboard</button>
 
     <script src="popup.js"></script>
 </body>
