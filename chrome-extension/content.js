@@ -140,8 +140,8 @@ async function createTrackingPixel(subject, recipient) {
     }
 
     const data = await response.json();
-    console.log("✅ Email Tracker: Tracking URL created:", data.trackingUrl);
-    return data.trackingUrl;
+    console.log("✅ Email Tracker: Email created:", data);
+    return data;  // Return full email data including ID
   } catch (error) {
     console.error("❌ Email Tracker: Error creating tracking pixel:", error);
     return null;
@@ -339,6 +339,90 @@ function showErrorIndicator(message) {
   setTimeout(() => indicator.remove(), 5000);
 }
 
+// Mark email as sent on server
+async function markEmailAsSent(emailId) {
+  if (!API_KEY) {
+    console.error("❌ Email Tracker: No API key for marking as sent");
+    return;
+  }
+
+  try {
+    console.log("📨 Email Tracker: Marking email as sent:", emailId);
+    
+    const response = await fetch(`${API_URL}/api/emails/${emailId}/mark-sent`, {
+      method: "POST",
+      headers: {
+        "X-API-Key": API_KEY,
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log("✅ Email Tracker: Email marked as sent at:", data.sentAt);
+    } else {
+      console.error("❌ Email Tracker: Failed to mark email as sent:", response.status);
+    }
+  } catch (error) {
+    console.error("❌ Email Tracker: Error marking email as sent:", error);
+  }
+}
+
+// Set up listener for send button
+function setupSendButtonListener(composeWindow) {
+  console.log("📤 Email Tracker: Setting up send button listener...");
+
+  // Try multiple selectors for the send button
+  const sendButtonSelectors = [
+    'div[role="button"][aria-label*="Send" i]',
+    'div[data-tooltip*="Send" i]',
+    'div.T-I.J-J5-Ji.aoO.v7.T-I-atl.L3',
+  ];
+
+  let sendButton = null;
+  for (const selector of sendButtonSelectors) {
+    sendButton = composeWindow.querySelector(selector);
+    if (sendButton) {
+      console.log("✅ Email Tracker: Found send button with selector:", selector);
+      break;
+    }
+  }
+
+  if (!sendButton) {
+    console.log("⚠️ Email Tracker: Send button not found, will try alternative detection");
+    // Set up mutation observer to detect when compose window closes (likely sent)
+    const observer = new MutationObserver((mutations) => {
+      if (!document.body.contains(composeWindow)) {
+        console.log("📨 Email Tracker: Compose window closed, assuming email sent");
+        const emailId = composeWindow.getAttribute("data-email-id");
+        if (emailId) {
+          markEmailAsSent(emailId);
+        }
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return;
+  }
+
+  // Add click listener to send button
+  sendButton.addEventListener(
+    "click",
+    () => {
+      console.log("📨 Email Tracker: Send button clicked!");
+      const emailId = composeWindow.getAttribute("data-email-id");
+      if (emailId) {
+        // Mark as sent after a short delay to ensure email is actually sent
+        setTimeout(() => {
+          markEmailAsSent(emailId);
+        }, 1000);
+      }
+    },
+    { once: true }
+  );
+
+  console.log("✅ Email Tracker: Send button listener added");
+}
+
 // Main function to inject tracking when message body is clicked
 async function injectTrackingOnBodyFocus(composeWindow) {
   console.log("🎯 Email Tracker: User interacted with message body!");
@@ -386,27 +470,35 @@ async function injectTrackingOnBodyFocus(composeWindow) {
     console.log("📧 Subject:", subject);
     console.log("👤 Recipient:", recipient);
 
-    const trackingUrl = await createTrackingPixel(subject, recipient);
+    const trackingData = await createTrackingPixel(subject, recipient);
 
-    if (!trackingUrl) {
+    if (!trackingData) {
       console.error("❌ Email Tracker: Failed to create tracking URL");
       composeWindow.removeAttribute("data-tracker-processing");
       return;
     }
 
     console.log("💉 Email Tracker: Injecting pixel into email...");
-    const success = injectTrackingPixel(composeWindow, trackingUrl);
+    const success = injectTrackingPixel(composeWindow, trackingData.trackingUrl);
 
     if (success) {
       console.log("🎉 Email Tracker: SUCCESS! Tracking pixel added to email");
-      showTrackingIndicator(trackingUrl);
+      
+      // Store the email ID for marking as sent later
+      composeWindow.setAttribute("data-email-id", trackingData.id);
+      
+      showTrackingIndicator(trackingData.trackingUrl);
 
       chrome.runtime.sendMessage({
         type: "TRACKING_ADDED",
         subject: subject,
         recipient: recipient,
-        trackingUrl: trackingUrl,
+        trackingUrl: trackingData.trackingUrl,
+        emailId: trackingData.id,
       });
+      
+      // Set up send button listener
+      setupSendButtonListener(composeWindow);
     } else {
       console.error("❌ Email Tracker: Failed to inject pixel");
       showErrorIndicator("Could not inject pixel");

@@ -23,6 +23,7 @@ const emailSchema = new mongoose.Schema({
   recipient: String,
   senderIp: String,
   createdAt: String,
+  sentAt: String,  // When email was actually sent
   opens: [{
     timestamp: String,
     userAgent: String,
@@ -196,10 +197,15 @@ function detectOpenType(userAgent, headers) {
   return { type: "unknown", isLikelyReal: true };
 }
 
-function isWithinGracePeriod(emailCreatedAt, openTimestamp) {
-  const createdTime = new Date(emailCreatedAt).getTime();
+function isWithinGracePeriod(email, openTimestamp) {
+  // If email hasn't been sent yet, all views are in grace period
+  if (!email.sentAt) {
+    return true;
+  }
+  
+  const sentTime = new Date(email.sentAt).getTime();
   const openTime = new Date(openTimestamp).getTime();
-  const diffSeconds = (openTime - createdTime) / 1000;
+  const diffSeconds = (openTime - sentTime) / 1000;
   return diffSeconds < GRACE_PERIOD_SECONDS;
 }
 
@@ -264,7 +270,7 @@ app.get("/track/:id", async (req, res) => {
 
       if (email) {
         const now = new Date().toISOString();
-        const inGracePeriod = isWithinGracePeriod(email.createdAt, now);
+        const inGracePeriod = isWithinGracePeriod(email, now);
         
         // Check if this is a self-view (same IP as sender)
         const isSelfView = email.senderIp && ip === email.senderIp;
@@ -369,6 +375,7 @@ app.post("/api/emails", validateApiKey, async (req, res) => {
       recipient: recipient || "Unknown",
       senderIp: senderIp,
       createdAt: new Date().toISOString(),
+      sentAt: null,  // Will be set when email is actually sent
       opens: [],
       openCount: 0,
       lastOpened: null,
@@ -381,6 +388,32 @@ app.post("/api/emails", validateApiKey, async (req, res) => {
   } catch (error) {
     console.error("Error creating email:", error);
     res.status(500).json({ error: "Failed to create tracked email" });
+  }
+});
+
+// Mark email as sent (triggers grace period start)
+app.post("/api/emails/:id/mark-sent", validateApiKey, async (req, res) => {
+  try {
+    const user = await User.findOne({ apiKey: req.apiKey });
+
+    if (!user) {
+      return res.status(404).json({ error: "Email not found" });
+    }
+
+    const email = user.emails.find((e) => e.id === req.params.id);
+
+    if (!email) {
+      return res.status(404).json({ error: "Email not found" });
+    }
+
+    // Set sentAt timestamp
+    email.sentAt = new Date().toISOString();
+    await user.save();
+
+    res.json({ message: "Email marked as sent", sentAt: email.sentAt });
+  } catch (error) {
+    console.error("Error marking email as sent:", error);
+    res.status(500).json({ error: "Failed to mark email as sent" });
   }
 });
 
