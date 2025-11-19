@@ -3,12 +3,10 @@ const cors = require("cors");
 const fs = require("fs").promises;
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
-const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, "tracking-data.json");
-const USERS_FILE = path.join(__dirname, "users.json");
 
 // Grace period: ignore opens within this many seconds after tracking link creation
 const GRACE_PERIOD_SECONDS = 45;
@@ -18,31 +16,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
-// API Key validation middleware - validates and returns user
-async function requireApiKey(req, res, next) {
-  const apiKey = req.headers['x-api-key'];
-  
-  if (!apiKey) {
-    return res.status(401).json({ error: 'Missing API key' });
-  }
-  
-  try {
-    const users = await readUsers();
-    const user = users.find(u => u.apiKey === apiKey);
-    
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid API key' });
-    }
-    
-    // Attach user to request
-    req.user = user;
-    next();
-  } catch (error) {
-    console.error('Error validating API key:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-}
-
 // Initialize data file if it doesn't exist
 async function initDataFile() {
   try {
@@ -50,31 +23,6 @@ async function initDataFile() {
   } catch {
     await fs.writeFile(DATA_FILE, JSON.stringify({ emails: [] }, null, 2));
   }
-}
-
-// Initialize users file if it doesn't exist
-async function initUsersFile() {
-  try {
-    await fs.access(USERS_FILE);
-  } catch {
-    await fs.writeFile(USERS_FILE, JSON.stringify({ users: [] }, null, 2));
-  }
-}
-
-// Read users
-async function readUsers() {
-  try {
-    const data = await fs.readFile(USERS_FILE, "utf8");
-    const parsed = JSON.parse(data);
-    return parsed.users || [];
-  } catch {
-    return [];
-  }
-}
-
-// Write users
-async function writeUsers(users) {
-  await fs.writeFile(USERS_FILE, JSON.stringify({ users }, null, 2));
 }
 
 // Read data
@@ -90,12 +38,6 @@ async function readData() {
 // Write data
 async function writeData(data) {
   await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
-}
-
-// Get emails for a specific user
-async function getUserEmails(userId) {
-  const data = await readData();
-  return data.emails.filter(email => email.userId === userId);
 }
 
 // Parse user agent to get device info
@@ -356,38 +298,8 @@ app.get("/track/:id", async (req, res) => {
   res.end(pixel);
 });
 
-// Register new user - auto-generates API key
-app.post("/api/register", async (req, res) => {
-  try {
-    // Generate a unique API key
-    const apiKey = crypto.randomBytes(32).toString('hex');
-    const userId = uuidv4();
-    
-    const newUser = {
-      userId,
-      apiKey,
-      createdAt: new Date().toISOString()
-    };
-    
-    const users = await readUsers();
-    users.push(newUser);
-    await writeUsers(users);
-    
-    console.log(`✅ New user registered: ${userId}`);
-    
-    res.json({ 
-      apiKey,
-      userId,
-      message: 'Registration successful! Save your API key.' 
-    });
-  } catch (error) {
-    console.error('Error registering user:', error);
-    res.status(500).json({ error: 'Failed to register user' });
-  }
-});
-
 // Create new tracked email
-app.post("/api/emails", requireApiKey, async (req, res) => {
+app.post("/api/emails", async (req, res) => {
   try {
     const { subject, recipient } = req.body;
 
@@ -406,7 +318,6 @@ app.post("/api/emails", requireApiKey, async (req, res) => {
       trackingUrl,
       subject,
       recipient: recipient || "Unknown",
-      userId: req.user.userId, // Associate with user
       createdAt: new Date().toISOString(),
       opens: [],
       openCount: 0,
@@ -424,11 +335,11 @@ app.post("/api/emails", requireApiKey, async (req, res) => {
   }
 });
 
-// Get all tracked emails for the authenticated user
-app.get("/api/emails", requireApiKey, async (req, res) => {
+// Get all tracked emails
+app.get("/api/emails", async (req, res) => {
   try {
-    const userEmails = await getUserEmails(req.user.userId);
-    const sortedEmails = userEmails.sort(
+    const data = await readData();
+    const sortedEmails = data.emails.sort(
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
     );
     res.json(sortedEmails);
@@ -438,11 +349,11 @@ app.get("/api/emails", requireApiKey, async (req, res) => {
   }
 });
 
-// Get specific email details (must belong to user)
-app.get("/api/emails/:id", requireApiKey, async (req, res) => {
+// Get specific email details
+app.get("/api/emails/:id", async (req, res) => {
   try {
     const data = await readData();
-    const email = data.emails.find((e) => e.id === req.params.id && e.userId === req.user.userId);
+    const email = data.emails.find((e) => e.id === req.params.id);
 
     if (!email) {
       return res.status(404).json({ error: "Email not found" });
@@ -455,11 +366,11 @@ app.get("/api/emails/:id", requireApiKey, async (req, res) => {
   }
 });
 
-// Delete tracked email (must belong to user)
-app.delete("/api/emails/:id", requireApiKey, async (req, res) => {
+// Delete tracked email
+app.delete("/api/emails/:id", async (req, res) => {
   try {
     const data = await readData();
-    const index = data.emails.findIndex((e) => e.id === req.params.id && e.userId === req.user.userId);
+    const index = data.emails.findIndex((e) => e.id === req.params.id);
 
     if (index === -1) {
       return res.status(404).json({ error: "Email not found" });
@@ -478,20 +389,8 @@ app.delete("/api/emails/:id", requireApiKey, async (req, res) => {
 // Initialize and start server
 async function startServer() {
   await initDataFile();
-  await initUsersFile();
-  
   app.listen(PORT, () => {
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`🚀 Email Tracker Server Running`);
-    console.log(`${'='.repeat(60)}`);
-    console.log(`📍 URL: http://localhost:${PORT}`);
-    console.log(`${'='.repeat(60)}`);
-    console.log(`\n📋 Setup:`);
-    console.log(`   • Users auto-register and get their own API key`);
-    console.log(`   • Each user's tracking is separate and private`);
-    console.log(`   • Extension will auto-register on first use`);
-    console.log(`\n💡 Multi-tenant email tracking ready!`);
-    console.log(`${'='.repeat(60)}\n`);
+    console.log(`Email tracker server running on http://localhost:${PORT}`);
   });
 }
 

@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>email tracker</title>
-    <script src="auth.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
@@ -59,8 +58,7 @@
             border-color: rgba(255, 255, 255, 0.15);
         }
 
-        input[type="text"],
-        input[type="password"] {
+        input[type="text"] {
             background: rgba(255, 255, 255, 0.04);
             border: 1px solid rgba(255, 255, 255, 0.1);
             color: rgba(255, 255, 255, 0.9);
@@ -72,8 +70,7 @@
             width: 100%;
         }
 
-        input[type="text"]:focus,
-        input[type="password"]:focus {
+        input[type="text"]:focus {
             outline: none;
             border-color: rgba(255, 255, 255, 0.25);
             background: rgba(255, 255, 255, 0.06);
@@ -348,26 +345,6 @@
             <p class="brand-subtitle mt-2">track email opens with invisible pixels</p>
         </div>
 
-        <!-- API Key Setup (Hidden by default - auto-registration handles this) -->
-        <div class="glass-card mb-10 hidden" id="api-key-section">
-            <div class="p-8">
-                <h2 class="text-lg font-medium text-white text-opacity-95 mb-6" style="letter-spacing: 0.03rem;">api key setup</h2>
-
-                <div class="space-y-5">
-                    <div>
-                        <label class="label-text block mb-2">api key</label>
-                        <input type="password" id="api-key-input" placeholder="enter your api key">
-                    </div>
-
-                    <button id="save-api-key-btn" class="action-button w-full mt-2">
-                        save api key
-                    </button>
-                </div>
-
-                <div id="api-key-status" class="hidden mt-4"></div>
-            </div>
-        </div>
-
         <!-- Create New Email Card -->
         <div class="glass-card mb-10">
             <div class="p-8">
@@ -469,41 +446,10 @@
             copyUrlBtn: getEl('copy-url-btn'),
             emailsContainer: getEl('emails-container'),
             refreshBtn: getEl('refresh-btn'),
-            countdown: getEl('countdown'),
-            apiKeyInput: getEl('api-key-input'),
-            saveApiKeyBtn: getEl('save-api-key-btn'),
-            apiKeyStatus: getEl('api-key-status'),
-            apiKeySection: getEl('api-key-section')
+            countdown: getEl('countdown')
         };
 
         let currentTrackingUrl = '';
-
-        function getHeaders() {
-            return window.EmailTrackerAuth.getAuthHeaders();
-        }
-
-        function showApiKeyError(message) {
-            UI.apiKeyStatus.className = 'mt-4 p-4 rounded-lg bg-red-500 bg-opacity-10 border border-red-500 border-opacity-20 text-red-400 text-sm';
-            UI.apiKeyStatus.textContent = message;
-            UI.apiKeyStatus.classList.remove('hidden');
-        }
-
-        function showApiKeySuccess(message) {
-            UI.apiKeyStatus.className = 'mt-4 p-4 rounded-lg bg-green-500 bg-opacity-10 border border-green-500 border-opacity-20 text-green-400 text-sm';
-            UI.apiKeyStatus.textContent = message;
-            UI.apiKeyStatus.classList.remove('hidden');
-        }
-
-        // API key management is now handled by auth.js
-        // This function is kept for backwards compatibility but delegates to auth system
-        async function saveApiKey() {
-            console.log('⚠️ Using deprecated saveApiKey function - auth.js handles this now');
-        }
-
-        function showApiKeySection() {
-            UI.apiKeySection.classList.remove('hidden');
-            UI.apiKeyInput.focus();
-        }
 
         function escapeHtml(text) {
             const div = document.createElement('div');
@@ -524,13 +470,6 @@
         }
 
         async function createTrackedEmail() {
-            const apiKey = window.EmailTrackerAuth.getApiKey();
-            if (!apiKey) {
-                alert('Please set your API key first');
-                showApiKeySection();
-                return;
-            }
-
             const subject = UI.subjectInput.value.trim();
             const recipient = UI.recipientInput.value.trim();
 
@@ -545,15 +484,9 @@
             try {
                 const res = await fetch('/api/emails', {
                     method: 'POST',
-                    headers: getHeaders(),
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ subject, recipient: recipient || 'Unknown' })
                 });
-
-                if (res.status === 401) {
-                    alert('Invalid API key. Please update your API key.');
-                    showApiKeySection();
-                    throw new Error('Invalid API key');
-                }
 
                 if (!res.ok) throw new Error('Failed to create tracking link');
 
@@ -716,33 +649,8 @@
         }
 
         async function loadEmails() {
-            const apiKey = window.EmailTrackerAuth.getApiKey();
-            if (!apiKey) {
-                UI.emailsContainer.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">🔐</div>
-                        <div>please set your api key first</div>
-                        <button class="action-button mt-4" onclick="showApiKeySection()">set api key</button>
-                    </div>
-                `;
-                return;
-            }
-
             try {
-                const res = await fetch('/api/emails', {
-                    headers: getHeaders()
-                });
-
-                if (res.status === 401) {
-                    UI.emailsContainer.innerHTML = `
-                        <div class="empty-state">
-                            <div class="empty-state-icon">🔐</div>
-                            <div>invalid api key</div>
-                            <button class="action-button mt-4" onclick="showApiKeySection()">update api key</button>
-                        </div>
-                    `;
-                    return;
-                }
+                const res = await fetch('/api/emails');
                 if (!res.ok) throw new Error('Failed to load emails');
 
                 const emails = await res.json();
@@ -775,10 +683,7 @@
             if (!confirm('Delete this tracked email?')) return;
 
             try {
-                const res = await fetch(`/api/emails/${id}`, {
-                    method: 'DELETE',
-                    headers: getHeaders()
-                });
+                const res = await fetch(`/api/emails/${id}`, { method: 'DELETE' });
                 if (!res.ok) throw new Error('Failed to delete email');
 
                 await loadEmails();
@@ -816,13 +721,8 @@
         }
 
         // Event listeners
-        UI.saveApiKeyBtn.addEventListener('click', saveApiKey);
         UI.createBtn.addEventListener('click', createTrackedEmail);
         UI.refreshBtn.addEventListener('click', loadEmails);
-
-        UI.apiKeyInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') saveApiKey();
-        });
 
         UI.copyHtmlBtn.addEventListener('click', () => {
             const html = `<img src="${currentTrackingUrl}" width="1" height="1" style="display:none" />`;
@@ -843,11 +743,8 @@
         });
 
         // Initial load and start countdown
-        (async () => {
-            await window.EmailTrackerAuth.initApiKey();
-            loadEmails();
-            startCountdown();
-        })();
+        loadEmails();
+        startCountdown();
     </script>
 </body>
 </html>
