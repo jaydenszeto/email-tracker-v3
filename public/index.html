@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>email tracker</title>
+    <script src="auth.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
@@ -347,11 +348,11 @@
             <p class="brand-subtitle mt-2">track email opens with invisible pixels</p>
         </div>
 
-        <!-- API Key Setup -->
-        <div class="glass-card mb-10" id="api-key-section">
+        <!-- API Key Setup (Hidden by default - auto-registration handles this) -->
+        <div class="glass-card mb-10 hidden" id="api-key-section">
             <div class="p-8">
                 <h2 class="text-lg font-medium text-white text-opacity-95 mb-6" style="letter-spacing: 0.03rem;">api key setup</h2>
-                
+
                 <div class="space-y-5">
                     <div>
                         <label class="label-text block mb-2">api key</label>
@@ -476,19 +477,9 @@
         };
 
         let currentTrackingUrl = '';
-        let apiKey = localStorage.getItem('emailTrackerApiKey') || '';
-
-        // Load saved API key on page load
-        if (apiKey) {
-            UI.apiKeyInput.value = apiKey;
-            UI.apiKeySection.classList.add('hidden');
-        }
 
         function getHeaders() {
-            return {
-                'Content-Type': 'application/json',
-                'X-API-Key': apiKey
-            };
+            return window.EmailTrackerAuth.getAuthHeaders();
         }
 
         function showApiKeyError(message) {
@@ -503,53 +494,10 @@
             UI.apiKeyStatus.classList.remove('hidden');
         }
 
+        // API key management is now handled by auth.js
+        // This function is kept for backwards compatibility but delegates to auth system
         async function saveApiKey() {
-            const newApiKey = UI.apiKeyInput.value.trim();
-            
-            if (!newApiKey) {
-                showApiKeyError('Please enter an API key');
-                return;
-            }
-
-            UI.saveApiKeyBtn.disabled = true;
-            UI.saveApiKeyBtn.textContent = 'testing...';
-
-            try {
-                // Test the API key by making a request
-                const res = await fetch('/api/emails', {
-                    headers: {
-                        'X-API-Key': newApiKey
-                    }
-                });
-
-                if (res.status === 401) {
-                    showApiKeyError('Invalid API key');
-                    return;
-                }
-
-                if (!res.ok) {
-                    throw new Error('Failed to validate API key');
-                }
-
-                // Save the API key
-                apiKey = newApiKey;
-                localStorage.setItem('emailTrackerApiKey', apiKey);
-                
-                showApiKeySuccess('✓ API key saved successfully!');
-                
-                // Hide the API key section after 2 seconds
-                setTimeout(() => {
-                    UI.apiKeySection.classList.add('hidden');
-                    loadEmails();
-                }, 2000);
-
-            } catch (error) {
-                console.error(error);
-                showApiKeyError('Failed to validate API key');
-            } finally {
-                UI.saveApiKeyBtn.disabled = false;
-                UI.saveApiKeyBtn.textContent = 'save api key';
-            }
+            console.log('⚠️ Using deprecated saveApiKey function - auth.js handles this now');
         }
 
         function showApiKeySection() {
@@ -576,6 +524,7 @@
         }
 
         async function createTrackedEmail() {
+            const apiKey = window.EmailTrackerAuth.getApiKey();
             if (!apiKey) {
                 alert('Please set your API key first');
                 showApiKeySection();
@@ -767,6 +716,7 @@
         }
 
         async function loadEmails() {
+            const apiKey = window.EmailTrackerAuth.getApiKey();
             if (!apiKey) {
                 UI.emailsContainer.innerHTML = `
                     <div class="empty-state">
@@ -825,7 +775,7 @@
             if (!confirm('Delete this tracked email?')) return;
 
             try {
-                const res = await fetch(`/api/emails/${id}`, { 
+                const res = await fetch(`/api/emails/${id}`, {
                     method: 'DELETE',
                     headers: getHeaders()
                 });
@@ -893,8 +843,11 @@
         });
 
         // Initial load and start countdown
-        loadEmails();
-        startCountdown();
+        (async () => {
+            await window.EmailTrackerAuth.initApiKey();
+            loadEmails();
+            startCountdown();
+        })();
     </script>
 </body>
 </html>

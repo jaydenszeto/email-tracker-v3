@@ -33,6 +33,35 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
+// Auto-register if no API key
+async function ensureApiKey() {
+  if (!API_KEY) {
+    console.log("🆕 Email Tracker: No API key, auto-registering...");
+    try {
+      const response = await fetch(`${API_URL}/api/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        API_KEY = data.apiKey;
+
+        // Save to Chrome storage
+        chrome.storage.sync.set({ apiKey: API_KEY }, () => {
+          console.log("✅ Email Tracker: Auto-registered! API key saved");
+        });
+
+        return true;
+      }
+    } catch (error) {
+      console.error("❌ Email Tracker: Auto-registration failed:", error);
+      return false;
+    }
+  }
+  return true;
+}
+
 // Track processed compose windows
 const processedComposeWindows = new Set();
 
@@ -107,6 +136,12 @@ function getRecipientEmail(composeWindow) {
 
 // Create tracking pixel by calling the server API
 async function createTrackingPixel(subject, recipient) {
+  const hasKey = await ensureApiKey();
+  if (!hasKey) {
+    showErrorIndicator("Failed to auto-register");
+    return null;
+  }
+
   console.log("📡 Email Tracker: Creating tracking pixel...");
   console.log("📧 Subject:", subject);
   console.log("👤 Recipient:", recipient);
@@ -130,11 +165,11 @@ async function createTrackingPixel(subject, recipient) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("❌ Email Tracker: Server error:", errorText);
-      
+
       if (response.status === 401) {
         showErrorIndicator("Invalid API key");
       }
-      
+
       throw new Error(`Server returned ${response.status}: ${errorText}`);
     }
 
