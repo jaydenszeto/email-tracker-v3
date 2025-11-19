@@ -117,11 +117,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Open dashboard
+    // Open dashboard with API key
     openDashboardBtn.addEventListener('click', () => {
-        chrome.storage.sync.get(['apiUrl'], (result) => {
+        chrome.storage.sync.get(['apiUrl', 'apiKey'], (result) => {
             const dashboardUrl = result.apiUrl || 'https://email-tracker-v3.onrender.com';
-            chrome.tabs.create({ url: dashboardUrl });
+            const apiKey = result.apiKey;
+            
+            // Pass API key via URL parameter
+            const url = apiKey ? `${dashboardUrl}?key=${encodeURIComponent(apiKey)}` : dashboardUrl;
+            chrome.tabs.create({ url });
         });
     });
 });

@@ -8,7 +8,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/email-tracker";
 
-const GRACE_PERIOD_SECONDS = 45;
+const GRACE_PERIOD_SECONDS = 10;
 
 app.use(cors());
 app.use(express.json());
