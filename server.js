@@ -9,7 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, "tracking-data.json");
 
-const GRACE_PERIOD_SECONDS = 45;
+const GRACE_PERIOD_SECONDS = 15;
 
 app.use(cors());
 app.use(express.json());

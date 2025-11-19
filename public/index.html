@@ -472,7 +472,7 @@
                             </div>
 
                             <div class="instruction-step">
-                                Note: Opens within first 45 seconds are ignored (while you're composing)
+                                Note: Opens within first 10 seconds are ignored (while you're composing)
                             </div>
                         </div>
 
@@ -764,7 +764,7 @@
 
             let gracePeriodNote = '';
             if (gracePeriodOpens.length > 0) {
-                gracePeriodNote = `<div class="text-xs text-white text-opacity-40 mt-3">(${gracePeriodOpens.length} opens ignored - within 45s grace period)</div>`;
+                gracePeriodNote = `<div class="text-xs text-white text-opacity-40 mt-3">(${gracePeriodOpens.length} opens ignored - within 10s grace period)</div>`;
             }
 
             return `
