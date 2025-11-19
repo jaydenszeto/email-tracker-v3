@@ -1,184 +1,248 @@
-# Complete Email Tracker Setup Guide
+# 🚀 Email Tracker - Complete Setup Guide
 
-## What You Now Have
+## ✅ What's Been Done
 
-✅ **Enhanced Server** - Tracks IP, device OS, browser, and device type  
-✅ **Beautiful Dashboard** - Shows all tracking data with clean timestamps  
-✅ **Chrome Extension** - Automatically adds tracking pixels to Gmail  
-✅ **60-Second Grace Period** - Filters out compose-time opens  
-✅ **Bot Detection** - Distinguishes real opens from automated ones
+I've updated your email tracker with **API key authentication** for security:
+
+1. ✅ Server has API key protection on all `/api/*` endpoints
+2. ✅ Dashboard requires API key to create/view/delete emails
+3. ✅ Chrome extension sends API key with requests
+4. ✅ Tracking pixel endpoint (`/track/:id`) remains public (no auth needed)
 
 ---
 
-## Quick Start
+## 🔑 Your Default API Key
 
-### 1. Install Dependencies & Start Server
+**Default API Key:** `your-secret-api-key-123`
+
+⚠️ **IMPORTANT:** Change this before deploying!
+
+---
+
+## 📋 Setup Steps
+
+### 1. **Start the Server**
 
 ```bash
 cd /Users/Jayden/Downloads/email-tracker-v3
 npm install
-npm start
+node server.js
 ```
 
-Server will run on: http://localhost:3000
+You should see:
+```
+Email tracker server running on http://localhost:3000
+API Key: your-secret-api-key-123
 
-### 2. Install Chrome Extension
+IMPORTANT: Change the API key in server.js or set API_KEY environment variable!
+```
 
-1. Open Chrome and go to: `chrome://extensions/`
-2. Enable **"Developer mode"** (toggle in top right)
-3. Click **"Load unpacked"**
-4. Select folder: `/Users/Jayden/Downloads/email-tracker-v3/chrome-extension`
+### 2. **Open the Dashboard**
 
-### 3. Create Extension Icons (Required)
+1. Go to: `http://localhost:3000`
+2. You'll see the API Key Setup section
+3. Enter your API key: `your-secret-api-key-123`
+4. Click "Save API Key"
+5. The API key is saved in your browser's localStorage
 
-The extension needs 3 icon files. Here's the easiest way:
+### 3. **Install Chrome Extension**
 
-**Option A: Use an Online Tool**
-1. Go to https://favicon.io/favicon-converter/
-2. Upload any image (or use 📧 emoji screenshot)
-3. Download the ZIP
-4. Rename and copy these files to `/chrome-extension/`:
-   - `favicon-16x16.png` → `icon16.png`
-   - `favicon-48x48.png` → `icon48.png` (or resize the 32x32)
-   - `android-chrome-192x192.png` → `icon128.png`
+1. Open Chrome and go to `chrome://extensions/`
+2. Enable "Developer mode" (top right)
+3. Click "Load unpacked"
+4. Select: `/Users/Jayden/Downloads/email-tracker-v3/chrome-extension`
+5. The extension icon should appear in your toolbar
 
-**Option B: Simple PNG Files**
-Just create 3 simple colored squares:
-- 16x16 pixels → `icon16.png`
-- 48x48 pixels → `icon48.png`
-- 128x128 pixels → `icon128.png`
+### 4. **Configure Extension**
 
-### 4. Test It Out!
+1. Click the extension icon
+2. In the popup:
+   - **Server URL:** `http://localhost:3000` (or your deployed URL)
+   - **API Key:** `your-secret-api-key-123`
+   - Keep **Auto-track emails** enabled
+3. Click "Save Settings"
 
-1. **Open Gmail** and compose a new email
-2. The extension will **automatically add** a tracking pixel
-3. You'll see a **"📊 Tracking enabled"** indicator
-4. Send the email
-5. Open the **dashboard** at http://localhost:3000
-6. Wait 60 seconds, then open your sent email
-7. **Refresh the dashboard** - you'll see the open with full details!
+### 5. **Test It Out!**
 
----
-
-## What Gets Tracked
-
-Each email open captures:
-
-- ⏰ **Exact timestamp** (e.g., "today at 4:32 PM")
-- 📱 **Device type** (Desktop, Mobile, Tablet)
-- 💻 **Operating System** (Windows 10, macOS, iOS, Android, etc.)
-- 🌐 **Browser** (Chrome, Firefox, Safari, Edge)
-- 🌍 **IP Address**
-- 📧 **Client type** (Gmail proxy, direct browser, mobile app)
+1. Go to Gmail: `https://mail.google.com`
+2. Click "Compose" to write a new email
+3. Add a recipient (required!)
+4. Add a subject
+5. Click into the message body
+6. **Look for a green popup** in the bottom-right that says "📊 Email Tracking Active"
+7. Send your email!
 
 ---
 
-## Extension Settings
+## 🔒 Security: Changing Your API Key
 
-Click the extension icon in Chrome to:
+### Method 1: Edit server.js
 
-- **Toggle auto-tracking** on/off
-- **Change server URL** (for when you deploy to Render)
-- **Open dashboard** quickly
+1. Open `/Users/Jayden/Downloads/email-tracker-v3/server.js`
+2. Find line 12:
+   ```javascript
+   const API_KEY = process.env.API_KEY || "your-secret-api-key-123";
+   ```
+3. Change `"your-secret-api-key-123"` to your own secure key
+4. Restart the server
 
----
-
-## Deploy to Production (Render)
-
-### Step 1: Push to GitHub
+### Method 2: Environment Variable (Recommended for Production)
 
 ```bash
-cd /Users/Jayden/Downloads/email-tracker-v3
-git init
-git add .
-git commit -m "Email tracker with Chrome extension"
-git branch -M main
-# Add your GitHub repo URL
-git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
-git push -u origin main
+export API_KEY="your-super-secret-key-here"
+node server.js
 ```
 
-### Step 2: Deploy on Render
+Or create a `.env` file:
+```
+API_KEY=your-super-secret-key-here
+PORT=3000
+```
 
-1. Go to https://render.com and sign in
-2. Click **"New +"** → **"Web Service"**
-3. Connect your GitHub repository
-4. Configure:
-   - **Name**: `email-tracker`
-   - **Environment**: `Node`
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
-5. Click **"Create Web Service"**
+Then use `dotenv`:
+```bash
+npm install dotenv
+```
 
-### Step 3: Update Extension
-
-1. Once deployed, copy your Render URL (e.g., `https://email-tracker-abc123.onrender.com`)
-2. Click the extension icon in Chrome
-3. Change **Server URL** to your Render URL
-4. Click **"Save Settings"**
-
-Done! Your extension now uses the production server.
+Update server.js (add at the top):
+```javascript
+require('dotenv').config();
+```
 
 ---
 
-## Features Breakdown
+## 🌐 Deploying to Production
 
-### 🎯 60-Second Grace Period
-- Prevents counting opens while you're composing
-- Filters out Gmail's preview/image loading
-- Only real recipient opens count
+When deploying (e.g., to Render, Heroku, etc.):
 
-### 🤖 Smart Bot Detection
-- **Gmail Proxy** = Real open (Gmail loads images only when user opens)
-- **Direct Browser** = Real open
-- **Mobile Client** = Real open
-- **Crawlers/Bots** = Filtered out
+1. **Set API Key Environment Variable**
+   - Don't hardcode it in server.js
+   - Use your hosting platform's environment variable settings
 
-### 📊 Rich Analytics
-- See exactly when emails are opened
-- Know what device/browser they're using
-- Track their IP address
-- View multiple opens from same recipient
+2. **Update Dashboard**
+   - Open dashboard at your deployed URL
+   - Enter your new API key
+   - Save it
 
-### 🎨 Beautiful UI
-- Dark theme with glass-morphism
-- IBM Plex Mono font
-- Auto-refreshes every 10 seconds
-- Matches your cal-dining-app aesthetic
+3. **Update Chrome Extension**
+   - Click extension icon
+   - Change Server URL to your deployed URL (e.g., `https://email-tracker-v3.onrender.com`)
+   - Enter your API key
+   - Save settings
 
 ---
 
-## Tips
+## 🎯 How It Works
 
-- **For personal use**: localhost is fine
-- **For team/business**: Deploy to Render
-- **Extension auto-tracks**: No manual pixel insertion needed
-- **Dashboard shows all**: One place to see all tracked emails
+```
+┌─────────────────┐
+│  Chrome Ext     │
+│  (Gmail)        │
+└────────┬────────┘
+         │ 1. User composes email
+         │ 2. Extension calls /api/emails with API key
+         ↓
+┌─────────────────┐
+│  Node Server    │
+│  Express.js     │
+├─────────────────┤
+│  • Validates    │
+│    API key      │
+│  • Creates      │
+│    tracking URL │
+│  • Returns to   │
+│    extension    │
+└────────┬────────┘
+         │ 3. Extension injects pixel into email
+         ↓
+┌─────────────────┐
+│  Recipient      │
+│  Opens Email    │
+└────────┬────────┘
+         │ 4. Email client loads tracking pixel
+         │ 5. GET /track/:id (no auth needed!)
+         ↓
+┌─────────────────┐
+│  Server Logs    │
+│  • IP address   │
+│  • Device info  │
+│  • Timestamp    │
+│  • User agent   │
+└────────┬────────┘
+         │ 6. Data saved to tracking-data.json
+         ↓
+┌─────────────────┐
+│  Dashboard      │
+│  (You)          │
+├─────────────────┤
+│  • View opens   │
+│  • See details  │
+│  • Track stats  │
+└─────────────────┘
+```
 
 ---
 
-## Troubleshooting
+## 🐛 Troubleshooting
 
-**Extension not tracking?**
-- Check that auto-track is enabled (click extension icon)
-- Verify server URL is correct
-- Make sure server is running
+### Green popup doesn't appear?
+1. Open Chrome DevTools (F12) on Gmail
+2. Go to Console tab
+3. Look for "🚀 Email Tracker" messages
+4. Make sure extension is loaded and API key is set
 
-**Not seeing opens?**
-- Wait 60 seconds after sending (grace period)
-- Check that recipient actually opened the email
-- Refresh the dashboard
+### "Invalid API key" error?
+1. Check extension has correct API key set
+2. Check dashboard has correct API key saved
+3. Make sure server.js has the same API key
+4. Restart server after changing API key
 
-**Icons not showing?**
-- Extension requires icon files to load
-- Follow icon creation steps above
+### Tracking not working?
+1. Verify recipient was added BEFORE clicking message body
+2. Check server is running
+3. Check Server URL in extension matches actual server URL
+4. Look for errors in browser console and server logs
+
+### Opens not appearing in dashboard?
+- Opens within first 45 seconds are ignored (grace period while composing)
+- Bot/crawler opens are flagged separately
+- Gmail proxy opens count as real opens
 
 ---
 
-## Privacy & Ethics
+## 📊 Features
 
-🚨 **Important**: Always inform recipients that emails may be tracked and comply with privacy laws (GDPR, CAN-SPAM, etc.).
+✅ **Smart Bot Detection**
+- Filters out email crawlers
+- Gmail/Yahoo proxies = real opens
+- Bot opens shown separately
+
+✅ **Grace Period**
+- First 45 seconds ignored (while composing)
+- Prevents counting yourself
+
+✅ **Device Tracking**
+- OS detection
+- Browser detection
+- Device type (Desktop/Mobile/Tablet)
+
+✅ **Open Details**
+- Timestamp
+- IP address
+- User agent
+- Referer
+
+✅ **Auto-Refresh**
+- Dashboard updates every 10 seconds
+- Manual refresh button available
 
 ---
 
-Enjoy your new email tracker! 🎉
+## 🎉 You're All Set!
+
+Your email tracker is now fully configured with API key security. Remember to:
+- Change the default API key before deploying
+- Keep your API key secret
+- Update both dashboard and extension with the same API key
+
+Happy tracking! 📧✨

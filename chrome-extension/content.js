@@ -3,14 +3,17 @@ console.log("🚀 Email Tracker: Extension loaded!");
 
 let API_URL = "https://email-tracker-v3.onrender.com";
 let AUTO_TRACK_ENABLED = true;
+let API_KEY = "";
 
 // Load settings from storage
-chrome.storage.sync.get(["apiUrl", "autoTrack"], (result) => {
+chrome.storage.sync.get(["apiUrl", "autoTrack", "apiKey"], (result) => {
   if (result.apiUrl) API_URL = result.apiUrl;
   if (result.autoTrack !== undefined) AUTO_TRACK_ENABLED = result.autoTrack;
+  if (result.apiKey) API_KEY = result.apiKey;
   console.log("⚙️ Email Tracker: Settings loaded:", {
     API_URL,
     AUTO_TRACK_ENABLED,
+    API_KEY: API_KEY ? "***" + API_KEY.slice(-4) : "not set",
   });
 });
 
@@ -23,6 +26,10 @@ chrome.storage.onChanged.addListener((changes) => {
   if (changes.autoTrack) {
     AUTO_TRACK_ENABLED = changes.autoTrack.newValue;
     console.log("🔄 Email Tracker: Auto-track changed to:", AUTO_TRACK_ENABLED);
+  }
+  if (changes.apiKey) {
+    API_KEY = changes.apiKey.newValue;
+    console.log("🔄 Email Tracker: API key updated");
   }
 });
 
@@ -110,6 +117,7 @@ async function createTrackingPixel(subject, recipient) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-API-Key": API_KEY,
       },
       body: JSON.stringify({
         subject: subject,
@@ -122,6 +130,11 @@ async function createTrackingPixel(subject, recipient) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("❌ Email Tracker: Server error:", errorText);
+      
+      if (response.status === 401) {
+        showErrorIndicator("Invalid API key");
+      }
+      
       throw new Error(`Server returned ${response.status}: ${errorText}`);
     }
 

@@ -128,7 +128,8 @@
             letter-spacing: 0.03rem;
         }
 
-        input[type="text"] {
+        input[type="text"],
+        input[type="password"] {
             width: 100%;
             background: rgba(255, 255, 255, 0.04);
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -139,7 +140,8 @@
             font-size: 0.75rem;
         }
 
-        input[type="text"]:focus {
+        input[type="text"]:focus,
+        input[type="password"]:focus {
             outline: none;
             border-color: rgba(255, 255, 255, 0.25);
             background: rgba(255, 255, 255, 0.06);
@@ -307,6 +309,11 @@
         <div class="input-group">
             <label class="label">Server URL</label>
             <input type="text" id="apiUrl" placeholder="https://email-tracker-v3.onrender.com" value="https://email-tracker-v3.onrender.com">
+        </div>
+
+        <div class="input-group">
+            <label class="label">API Key</label>
+            <input type="password" id="apiKey" placeholder="your-secret-api-key-123">
         </div>
 
         <button class="button button-primary" id="saveSettings">Save Settings</button>

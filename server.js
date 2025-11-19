@@ -8,6 +8,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, "tracking-data.json");
 
+// API Key for authentication (change this!)
+const API_KEY = process.env.API_KEY || "your-secret-api-key-123";
+
 // Grace period: ignore opens within this many seconds after tracking link creation
 const GRACE_PERIOD_SECONDS = 45;
 
@@ -15,6 +18,17 @@ const GRACE_PERIOD_SECONDS = 45;
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
+
+// API Key validation middleware - only for API routes, not tracking pixel
+function requireApiKey(req, res, next) {
+  const apiKey = req.headers['x-api-key'];
+  
+  if (!apiKey || apiKey !== API_KEY) {
+    return res.status(401).json({ error: 'Invalid or missing API key' });
+  }
+  
+  next();
+}
 
 // Initialize data file if it doesn't exist
 async function initDataFile() {
@@ -299,7 +313,7 @@ app.get("/track/:id", async (req, res) => {
 });
 
 // Create new tracked email
-app.post("/api/emails", async (req, res) => {
+app.post("/api/emails", requireApiKey, async (req, res) => {
   try {
     const { subject, recipient } = req.body;
 
@@ -336,7 +350,7 @@ app.post("/api/emails", async (req, res) => {
 });
 
 // Get all tracked emails
-app.get("/api/emails", async (req, res) => {
+app.get("/api/emails", requireApiKey, async (req, res) => {
   try {
     const data = await readData();
     const sortedEmails = data.emails.sort(
@@ -350,7 +364,7 @@ app.get("/api/emails", async (req, res) => {
 });
 
 // Get specific email details
-app.get("/api/emails/:id", async (req, res) => {
+app.get("/api/emails/:id", requireApiKey, async (req, res) => {
   try {
     const data = await readData();
     const email = data.emails.find((e) => e.id === req.params.id);
@@ -367,7 +381,7 @@ app.get("/api/emails/:id", async (req, res) => {
 });
 
 // Delete tracked email
-app.delete("/api/emails/:id", async (req, res) => {
+app.delete("/api/emails/:id", requireApiKey, async (req, res) => {
   try {
     const data = await readData();
     const index = data.emails.findIndex((e) => e.id === req.params.id);
@@ -391,6 +405,8 @@ async function startServer() {
   await initDataFile();
   app.listen(PORT, () => {
     console.log(`Email tracker server running on http://localhost:${PORT}`);
+    console.log(`API Key: ${API_KEY}`);
+    console.log(`\nIMPORTANT: Change the API key in server.js or set API_KEY environment variable!`);
   });
 }
 

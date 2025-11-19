@@ -3,17 +3,22 @@
 document.addEventListener('DOMContentLoaded', () => {
     const autoTrackToggle = document.getElementById('autoTrack');
     const apiUrlInput = document.getElementById('apiUrl');
+    const apiKeyInput = document.getElementById('apiKey');
     const saveSettingsBtn = document.getElementById('saveSettings');
     const openDashboardBtn = document.getElementById('openDashboard');
     const statusDiv = document.getElementById('status');
 
     // Load settings
-    chrome.storage.sync.get(['apiUrl', 'autoTrack'], (result) => {
+    chrome.storage.sync.get(['apiUrl', 'autoTrack', 'apiKey'], (result) => {
         if (result.apiUrl) {
             apiUrlInput.value = result.apiUrl;
         } else {
             // Set default
             apiUrlInput.value = 'https://email-tracker-v3.onrender.com';
+        }
+        
+        if (result.apiKey) {
+            apiKeyInput.value = result.apiKey;
         }
         
         if (result.autoTrack !== undefined) {
@@ -42,13 +47,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Save settings
     saveSettingsBtn.addEventListener('click', () => {
         const apiUrl = apiUrlInput.value.trim();
+        const apiKey = apiKeyInput.value.trim();
         const autoTrack = autoTrackToggle.checked;
 
         // Remove trailing slash if present
         const cleanUrl = apiUrl.replace(/\/$/, '');
 
         chrome.storage.sync.set({ 
-            apiUrl: cleanUrl, 
+            apiUrl: cleanUrl,
+            apiKey: apiKey,
             autoTrack: autoTrack 
         }, () => {
             // Show success feedback
@@ -61,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 saveSettingsBtn.style.background = '';
             }, 2000);
             
-            console.log('Settings saved:', { apiUrl: cleanUrl, autoTrack });
+            console.log('Settings saved:', { apiUrl: cleanUrl, apiKey: apiKey ? '***' + apiKey.slice(-4) : 'not set', autoTrack });
         });
     });
 
