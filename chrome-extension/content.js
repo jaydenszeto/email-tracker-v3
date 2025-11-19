@@ -561,6 +561,254 @@ function init() {
   }, 1000);
 }
 
+// ============ INBOX TRACKING INDICATORS ============
+
+// Fetch tracked emails from server
+async function fetchTrackedEmails() {
+  if (!API_KEY) {
+    console.log("ℹ️ Email Tracker: No API key, skipping inbox indicators");
+    return [];
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/emails`, {
+      headers: {
+        "X-API-Key": API_KEY,
+      },
+    });
+
+    if (response.ok) {
+      const emails = await response.json();
+      console.log(`📊 Email Tracker: Fetched ${emails.length} tracked emails`);
+      return emails;
+    }
+  } catch (error) {
+    console.error("❌ Email Tracker: Error fetching tracked emails:", error);
+  }
+
+  return [];
+}
+
+// Extract subject from inbox row
+function getSubjectFromRow(row) {
+  // Try multiple selectors for subject
+  const selectors = [
+    'span[data-thread-id]',
+    '.bog span',
+    '.y2 span',
+    'span.bqe',
+    'span.a4W',
+  ];
+
+  for (const selector of selectors) {
+    const element = row.querySelector(selector);
+    if (element) {
+      const text = element.textContent.trim();
+      if (text && text.length > 0) {
+        return text;
+      }
+    }
+  }
+
+  return null;
+}
+
+// Create indicator arrows
+function createIndicators(isSent, isOpened, openCount) {
+  const container = document.createElement('span');
+  container.className = 'email-tracker-inbox-indicators';
+  container.style.cssText = `
+    display: inline-flex;
+    gap: 2px;
+    margin-left: 12px;
+    margin-right: 4px;
+    align-items: center;
+    font-size: 11px;
+  `;
+
+  if (isSent) {
+    const checkmark = document.createElement('span');
+    checkmark.innerHTML = '✓';
+    
+    if (isOpened && openCount > 0) {
+      // Green check for opened emails
+      checkmark.title = `Email opened ${openCount} time${openCount > 1 ? 's' : ''}`;
+      checkmark.style.cssText = `
+        color: #10b981;
+        font-weight: 600;
+        cursor: help;
+      `;
+      container.appendChild(checkmark);
+      
+      // Add count if more than 1 open
+      if (openCount > 1) {
+        const count = document.createElement('span');
+        count.textContent = `x${openCount}`;
+        count.style.cssText = `
+          font-size: 10px;
+          font-weight: 500;
+          color: #10b981;
+          margin-left: 1px;
+        `;
+        container.appendChild(count);
+      }
+    } else {
+      // Gray check for not opened yet
+      checkmark.title = 'Email tracked - not opened yet';
+      checkmark.style.cssText = `
+        color: #9ca3af;
+        font-weight: 600;
+        cursor: help;
+      `;
+      container.appendChild(checkmark);
+    }
+  }
+
+  return container;
+}
+
+// Add indicators to inbox rows
+async function addInboxIndicators() {
+  console.log("🔍 Email Tracker: Scanning inbox for tracked emails...");
+
+  const trackedEmails = await fetchTrackedEmails();
+  
+  if (trackedEmails.length === 0) {
+    console.log("ℹ️ Email Tracker: No tracked emails found");
+    return;
+  }
+
+  // Create a map of subjects to tracking data
+  const trackingMap = new Map();
+  trackedEmails.forEach(email => {
+    const normalizedSubject = email.subject.toLowerCase().trim();
+    trackingMap.set(normalizedSubject, {
+      isSent: true,
+      isOpened: email.openCount > 0,
+      openCount: email.openCount,
+    });
+  });
+
+  console.log(`📋 Email Tracker: Created tracking map with ${trackingMap.size} entries`);
+
+  // Find all email rows in inbox
+  const rowSelectors = [
+    'tr.zA',  // Standard inbox row
+    'div[role="row"]',  // Alternative row format
+  ];
+
+  let rows = [];
+  for (const selector of rowSelectors) {
+    const found = document.querySelectorAll(selector);
+    if (found.length > 0) {
+      rows = Array.from(found);
+      console.log(`✅ Email Tracker: Found ${rows.length} inbox rows with selector: ${selector}`);
+      break;
+    }
+  }
+
+  if (rows.length === 0) {
+    console.log("⚠️ Email Tracker: No inbox rows found");
+    return;
+  }
+
+  let indicatorsAdded = 0;
+
+  rows.forEach((row, index) => {
+    // Skip if already has indicators
+    if (row.querySelector('.email-tracker-inbox-indicators')) {
+      return;
+    }
+
+    const subject = getSubjectFromRow(row);
+    
+    if (!subject) {
+      return;
+    }
+
+    const normalizedSubject = subject.toLowerCase().trim();
+    const trackingData = trackingMap.get(normalizedSubject);
+
+    if (trackingData) {
+      console.log(`✅ Email Tracker: Match found for "${subject}"`);
+      
+      // Find the time element (usually on the right side)
+      const timeElement = row.querySelector('span.xW.xY') || // Time span in standard view
+                         row.querySelector('td.xW.xY') ||   // Time cell
+                         row.querySelector('span[title]')?.closest('td')?.querySelector('span') || // Alternative
+                         row.querySelectorAll('td')[row.querySelectorAll('td').length - 1]; // Last column as fallback
+
+      if (timeElement) {
+        const indicators = createIndicators(
+          trackingData.isSent,
+          trackingData.isOpened,
+          trackingData.openCount
+        );
+        
+        // Insert indicators before the time
+        if (timeElement.parentElement) {
+          timeElement.parentElement.style.display = 'flex';
+          timeElement.parentElement.style.alignItems = 'center';
+          timeElement.parentElement.style.justifyContent = 'flex-end';
+          timeElement.parentElement.insertBefore(indicators, timeElement);
+          indicatorsAdded++;
+        }
+      }
+    }
+  });
+
+  console.log(`🎉 Email Tracker: Added indicators to ${indicatorsAdded} emails`);
+}
+
+// Monitor inbox for changes and add indicators
+function startInboxMonitoring() {
+  console.log("👀 Email Tracker: Starting inbox monitoring...");
+
+  // Initial scan
+  setTimeout(() => addInboxIndicators(), 2000);
+
+  // Re-scan when inbox changes
+  const inboxObserver = new MutationObserver((mutations) => {
+    // Debounce the updates
+    clearTimeout(window.inboxUpdateTimeout);
+    window.inboxUpdateTimeout = setTimeout(() => {
+      addInboxIndicators();
+    }, 1000);
+  });
+
+  // Observe the main inbox container
+  const checkInboxContainer = setInterval(() => {
+    const inboxContainer = document.querySelector('div[role="main"]') ||
+                          document.querySelector('.AO');
+    
+    if (inboxContainer) {
+      clearInterval(checkInboxContainer);
+      inboxObserver.observe(inboxContainer, {
+        childList: true,
+        subtree: true,
+      });
+      console.log("✅ Email Tracker: Inbox observer active");
+    }
+  }, 1000);
+
+  // Refresh indicators every 30 seconds
+  setInterval(() => {
+    console.log("🔄 Email Tracker: Refreshing inbox indicators...");
+    // Remove old indicators first
+    document.querySelectorAll('.email-tracker-inbox-indicators').forEach(el => el.remove());
+    addInboxIndicators();
+  }, 30000);
+}
+
+// ============ END INBOX TRACKING INDICATORS ============
+
 // Start the extension
 console.log("🎬 Email Tracker: Content script starting...");
 init();
+
+// Start inbox monitoring after Gmail loads
+setTimeout(() => {
+  if (window.location.hostname.includes("mail.google.com")) {
+    startInboxMonitoring();
+  }
+}, 3000);

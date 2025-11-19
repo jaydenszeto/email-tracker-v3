@@ -21,6 +21,7 @@ const emailSchema = new mongoose.Schema({
   trackingUrl: String,
   subject: String,
   recipient: String,
+  senderIp: String,
   createdAt: String,
   opens: [{
     timestamp: String,
@@ -29,6 +30,7 @@ const emailSchema = new mongoose.Schema({
     referer: String,
     openType: String,
     isReal: Boolean,
+    isSelfView: Boolean,
     inGracePeriod: Boolean,
     deviceInfo: {
       os: String,
@@ -263,6 +265,9 @@ app.get("/track/:id", async (req, res) => {
       if (email) {
         const now = new Date().toISOString();
         const inGracePeriod = isWithinGracePeriod(email.createdAt, now);
+        
+        // Check if this is a self-view (same IP as sender)
+        const isSelfView = email.senderIp && ip === email.senderIp;
 
         const openEvent = {
           timestamp: now,
@@ -271,6 +276,7 @@ app.get("/track/:id", async (req, res) => {
           referer,
           openType: openInfo.type,
           isReal: openInfo.isLikelyReal,
+          isSelfView: isSelfView,
           inGracePeriod: inGracePeriod,
           deviceInfo: {
             os: deviceInfo.os,
@@ -287,12 +293,13 @@ app.get("/track/:id", async (req, res) => {
 
         email.opens.push(openEvent);
 
+        // Only count opens that are real, not in grace period, and not self-views
         const validOpens = email.opens.filter(
-          (o) => o.isReal && !o.inGracePeriod
+          (o) => o.isReal && !o.inGracePeriod && !o.isSelfView
         );
         email.openCount = validOpens.length;
 
-        if (openInfo.isLikelyReal && !inGracePeriod) {
+        if (openInfo.isLikelyReal && !inGracePeriod && !isSelfView) {
           email.lastOpened = openEvent.timestamp;
         }
 
@@ -337,6 +344,18 @@ app.post("/api/emails", validateApiKey, async (req, res) => {
       });
     }
 
+    // Capture sender's IP address
+    const senderIp = (
+      req.headers["x-forwarded-for"] ||
+      req.headers["x-real-ip"] ||
+      req.connection.remoteAddress ||
+      req.socket.remoteAddress ||
+      "Unknown"
+    )
+      .split(",")[0]
+      .trim()
+      .replace("::ffff:", "");
+
     const trackingId = uuidv4();
     const trackingUrl = `${req.protocol}://${req.get(
       "host"
@@ -348,6 +367,7 @@ app.post("/api/emails", validateApiKey, async (req, res) => {
       trackingUrl,
       subject,
       recipient: recipient || "Unknown",
+      senderIp: senderIp,
       createdAt: new Date().toISOString(),
       opens: [],
       openCount: 0,
