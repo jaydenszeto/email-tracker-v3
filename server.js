@@ -274,42 +274,47 @@ app.get("/track/:id", async (req, res) => {
         
         // Check if this is a self-view (same IP as sender)
         const isSelfView = email.senderIp && ip === email.senderIp;
+        
+        // Only count gmail proxy opens (most reliable)
+        const isGmailOpen = openInfo.type === "gmail-proxy" || openInfo.type === "yahoo-proxy";
+        
+        // Determine if this open should be saved and counted
+        const shouldCount = isGmailOpen && !inGracePeriod && !isSelfView;
 
-        const openEvent = {
-          timestamp: now,
-          userAgent,
-          ip,
-          referer,
-          openType: openInfo.type,
-          isReal: openInfo.isLikelyReal,
-          isSelfView: isSelfView,
-          inGracePeriod: inGracePeriod,
-          deviceInfo: {
-            os: deviceInfo.os,
-            browser: deviceInfo.browser,
-            device: deviceInfo.device,
-          },
-          headers: {
-            via: req.headers["via"] || null,
-            accept: req.headers["accept"] || null,
-            acceptLanguage: req.headers["accept-language"] || null,
-            acceptEncoding: req.headers["accept-encoding"] || null,
-          },
-        };
+        // Only save opens that count (saves storage)
+        if (shouldCount) {
+          const openEvent = {
+            timestamp: now,
+            userAgent,
+            ip,
+            referer,
+            openType: openInfo.type,
+            isReal: openInfo.isLikelyReal,
+            isSelfView: isSelfView,
+            inGracePeriod: inGracePeriod,
+            deviceInfo: {
+              os: deviceInfo.os,
+              browser: deviceInfo.browser,
+              device: deviceInfo.device,
+            },
+            headers: {
+              via: req.headers["via"] || null,
+              accept: req.headers["accept"] || null,
+              acceptLanguage: req.headers["accept-language"] || null,
+              acceptEncoding: req.headers["accept-encoding"] || null,
+            },
+          };
 
-        email.opens.push(openEvent);
-
-        // Only count opens that are real, not in grace period, and not self-views
-        const validOpens = email.opens.filter(
-          (o) => o.isReal && !o.inGracePeriod && !o.isSelfView
-        );
-        email.openCount = validOpens.length;
-
-        if (openInfo.isLikelyReal && !inGracePeriod && !isSelfView) {
+          email.opens.push(openEvent);
+          email.openCount = email.opens.length;
           email.lastOpened = openEvent.timestamp;
-        }
 
-        await user.save();
+          await user.save();
+          
+          console.log(`✅ Open counted for email "${email.subject}" from ${openInfo.type}`);
+        } else {
+          console.log(`⏭️ Open ignored for email "${email.subject}" - Type: ${openInfo.type}, Grace: ${inGracePeriod}, Self: ${isSelfView}`);
+        }
       }
     }
   } catch (error) {

@@ -472,7 +472,11 @@
                             </div>
 
                             <div class="instruction-step">
-                                Note: Opens within first 10 seconds are ignored (while you're composing)
+                                Note: Only Gmail/Yahoo proxy opens are counted (most reliable)
+                            </div>
+                            
+                            <div class="instruction-step">
+                                Opens within first 10 seconds after sending are ignored
                             </div>
                         </div>
 
@@ -711,18 +715,12 @@
         }
 
         function renderEmail(email) {
-            const validOpens = email.opens.filter(o => o.isReal && !o.inGracePeriod);
-            const gracePeriodOpens = email.opens.filter(o => o.inGracePeriod);
-            const botOpens = email.opens.filter(o => !o.isReal && !o.inGracePeriod);
-
-            const hasValidOpens = validOpens.length > 0;
-            const hasBotOpens = botOpens.length > 0;
+            const opens = email.opens || [];
+            const hasOpens = opens.length > 0;
 
             let statusHtml = '';
-            if (hasValidOpens) {
-                statusHtml = `<span class="status-badge status-opened">opened ${validOpens.length}x</span>`;
-            } else if (hasBotOpens) {
-                statusHtml = `<span class="status-badge status-bot">bot only</span>`;
+            if (hasOpens) {
+                statusHtml = `<span class="status-badge status-opened">opened ${opens.length}x</span>`;
             } else {
                 statusHtml = `<span class="status-badge status-unopened">not opened</span>`;
             }
@@ -732,9 +730,9 @@
                 : '';
 
             let opensDetailsHtml = '';
-            if (validOpens.length > 0) {
+            if (opens.length > 0) {
                 opensDetailsHtml = '<div class="mt-5"><div class="text-xs text-white text-opacity-60 mb-3 font-medium" style="letter-spacing: 0.05rem;">OPENS:</div>';
-                validOpens.slice(0, 10).forEach(open => {
+                opens.slice(0, 10).forEach(open => {
                     const timestamp = formatTimestamp(open.timestamp);
                     const typeBadge = getOpenTypeBadge(open.openType);
 
@@ -756,15 +754,10 @@
                         </div>
                     `;
                 });
-                if (validOpens.length > 10) {
-                    opensDetailsHtml += `<div class="text-xs text-white text-opacity-40 mt-3">+ ${validOpens.length - 10} more opens</div>`;
+                if (opens.length > 10) {
+                    opensDetailsHtml += `<div class="text-xs text-white text-opacity-40 mt-3">+ ${opens.length - 10} more opens</div>`;
                 }
                 opensDetailsHtml += '</div>';
-            }
-
-            let gracePeriodNote = '';
-            if (gracePeriodOpens.length > 0) {
-                gracePeriodNote = `<div class="text-xs text-white text-opacity-40 mt-3">(${gracePeriodOpens.length} opens ignored - within 10s grace period)</div>`;
             }
 
             return `
@@ -785,7 +778,6 @@
                     ${lastOpenedText ? `<div class="mb-4">${lastOpenedText}</div>` : ''}
 
                     ${opensDetailsHtml}
-                    ${gracePeriodNote}
 
                     <div class="mt-5">
                         <div class="text-xs text-white text-opacity-60 mb-2 font-medium" style="letter-spacing: 0.05rem;">TRACKING URL:</div>
