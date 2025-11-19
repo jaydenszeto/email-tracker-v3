@@ -3,67 +3,57 @@ const cors = require("cors");
 const fs = require("fs").promises;
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
+const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, "tracking-data.json");
 
-// Grace period: ignore opens within this many seconds after tracking link creation
 const GRACE_PERIOD_SECONDS = 45;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
-// Initialize data file if it doesn't exist
 async function initDataFile() {
   try {
     await fs.access(DATA_FILE);
   } catch {
-    await fs.writeFile(DATA_FILE, JSON.stringify({ emails: [] }, null, 2));
+    await fs.writeFile(DATA_FILE, JSON.stringify({ users: {} }, null, 2));
   }
 }
 
-// Read data
 async function readData() {
   try {
     const data = await fs.readFile(DATA_FILE, "utf8");
     return JSON.parse(data);
   } catch {
-    return { emails: [] };
+    return { users: {} };
   }
 }
 
-// Write data
 async function writeData(data) {
   await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-// Parse user agent to get device info
+function generateApiKey() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
 function parseUserAgent(userAgent) {
   if (!userAgent) {
     return { os: "Unknown", browser: "Unknown", device: "Unknown" };
   }
 
   const ua = userAgent.toLowerCase();
-  const original = userAgent; // Keep original for case-sensitive matching
 
-  // OS Detection - Order matters! Check most specific first
   let os = "Unknown";
-
-  // Mobile OS first (most specific)
-  if (ua.includes("iphone")) {
-    os = "iOS (iPhone)";
-  } else if (ua.includes("ipad")) {
-    os = "iOS (iPad)";
-  } else if (ua.includes("android")) {
-    // Try to get Android version
+  if (ua.includes("iphone")) os = "iOS (iPhone)";
+  else if (ua.includes("ipad")) os = "iOS (iPad)";
+  else if (ua.includes("android")) {
     const match = ua.match(/android\s+([\d.]+)/);
     os = match ? `Android ${match[1]}` : "Android";
-  }
-  // Desktop OS
-  else if (ua.includes("mac os x") || ua.includes("macintosh")) {
+  } else if (ua.includes("mac os x") || ua.includes("macintosh")) {
     const match = ua.match(/mac os x ([\d_]+)/);
     if (match) {
       const version = match[1].replace(/_/g, ".");
@@ -79,60 +69,40 @@ function parseUserAgent(userAgent) {
   else if (ua.includes("linux") && !ua.includes("android")) os = "Linux";
   else if (ua.includes("cros")) os = "Chrome OS";
 
-  // Browser Detection - Order is critical! Most specific first
   let browser = "Unknown";
-
-  // Check for specific browsers that include "chrome" in UA but aren't Chrome
   if (ua.includes("edg/") || ua.includes("edge/")) {
     browser = "Edge";
   } else if (ua.includes("opr/") || ua.includes("opera")) {
     browser = "Opera";
   } else if (ua.includes("brave")) {
     browser = "Brave";
-  }
-  // Chrome and Chrome-based browsers
-  else if (ua.includes("chrome/") || ua.includes("crios/")) {
-    // Extract Chrome version
+  } else if (ua.includes("chrome/") || ua.includes("crios/")) {
     const match = ua.match(/chrome\/([\d.]+)/);
     browser = match ? `Chrome ${match[1].split(".")[0]}` : "Chrome";
   } else if (ua.includes("chromium")) {
     browser = "Chromium";
-  }
-  // Firefox
-  else if (ua.includes("firefox") || ua.includes("fxios")) {
+  } else if (ua.includes("firefox") || ua.includes("fxios")) {
     const match = ua.match(/firefox\/([\d.]+)/);
     browser = match ? `Firefox ${match[1].split(".")[0]}` : "Firefox";
-  }
-  // Safari - must be after Chrome check!
-  else if (ua.includes("safari/") && !ua.includes("chrome")) {
+  } else if (ua.includes("safari/") && !ua.includes("chrome")) {
     const match = ua.match(/version\/([\d.]+)/);
     browser = match ? `Safari ${match[1].split(".")[0]}` : "Safari";
-  }
-  // Other browsers
-  else if (ua.includes("msie") || ua.includes("trident/")) {
+  } else if (ua.includes("msie") || ua.includes("trident/")) {
     browser = "Internet Explorer";
   }
 
-  // Device Type Detection
   let device = "Desktop/Laptop";
-
-  // Mobile devices
   if (ua.includes("mobile") || ua.includes("iphone") || ua.includes("ipod")) {
     device = "Mobile";
-  }
-  // Tablets
-  else if (ua.includes("tablet") || ua.includes("ipad")) {
+  } else if (ua.includes("tablet") || ua.includes("ipad")) {
     device = "Tablet";
-  }
-  // Specific mobile keywords
-  else if (ua.includes("android") && !ua.includes("mobile")) {
-    device = "Tablet"; // Android without "mobile" is usually tablet
+  } else if (ua.includes("android") && !ua.includes("mobile")) {
+    device = "Tablet";
   }
 
   return { os, browser, device };
 }
 
-// Improved bot detection
 function detectOpenType(userAgent, headers) {
   if (!userAgent) {
     return { type: "unknown", isLikelyReal: false };
@@ -140,7 +110,6 @@ function detectOpenType(userAgent, headers) {
 
   const userAgentLower = userAgent.toLowerCase();
 
-  // These are definitely bots/crawlers
   const definitelyBots = [
     "bot",
     "crawler",
@@ -162,7 +131,6 @@ function detectOpenType(userAgent, headers) {
     }
   }
 
-  // Gmail image proxy - this IS a real open!
   if (
     userAgentLower.includes("googleimageproxy") ||
     (headers["via"] && headers["via"].toLowerCase().includes("google"))
@@ -170,7 +138,6 @@ function detectOpenType(userAgent, headers) {
     return { type: "gmail-proxy", isLikelyReal: true };
   }
 
-  // Yahoo/AOL image proxies
   if (
     userAgentLower.includes("yahoo") &&
     userAgentLower.includes("slurp") === false
@@ -178,7 +145,6 @@ function detectOpenType(userAgent, headers) {
     return { type: "yahoo-proxy", isLikelyReal: true };
   }
 
-  // Direct browser access
   if (
     userAgentLower.includes("mozilla") ||
     userAgentLower.includes("chrome") ||
@@ -188,7 +154,6 @@ function detectOpenType(userAgent, headers) {
     return { type: "browser", isLikelyReal: true };
   }
 
-  // Mobile email clients
   if (
     userAgentLower.includes("mobile") ||
     userAgentLower.includes("iphone") ||
@@ -200,21 +165,51 @@ function detectOpenType(userAgent, headers) {
   return { type: "unknown", isLikelyReal: true };
 }
 
-// Check if open is within grace period
 function isWithinGracePeriod(emailCreatedAt, openTimestamp) {
   const createdTime = new Date(emailCreatedAt).getTime();
   const openTime = new Date(openTimestamp).getTime();
   const diffSeconds = (openTime - createdTime) / 1000;
-
   return diffSeconds < GRACE_PERIOD_SECONDS;
 }
 
-// Create tracking pixel endpoint - GET request
+// Middleware to validate API key
+function validateApiKey(req, res, next) {
+  const apiKey = req.headers["x-api-key"] || req.query.apiKey;
+
+  if (!apiKey) {
+    return res.status(401).json({ error: "API key required" });
+  }
+
+  req.apiKey = apiKey;
+  next();
+}
+
+// Generate new API key
+app.post("/api/auth/generate-key", async (req, res) => {
+  try {
+    const apiKey = generateApiKey();
+    const data = await readData();
+
+    if (!data.users[apiKey]) {
+      data.users[apiKey] = {
+        emails: [],
+        createdAt: new Date().toISOString(),
+      };
+      await writeData(data);
+    }
+
+    res.json({ apiKey });
+  } catch (error) {
+    console.error("Error generating API key:", error);
+    res.status(500).json({ error: "Failed to generate API key" });
+  }
+});
+
+// Tracking pixel endpoint - no auth needed
 app.get("/track/:id", async (req, res) => {
   const trackId = req.params.id;
   const userAgent = req.headers["user-agent"] || "Unknown";
 
-  // Get IP address (works with proxies/load balancers)
   const ip = (
     req.headers["x-forwarded-for"] ||
     req.headers["x-real-ip"] ||
@@ -227,18 +222,26 @@ app.get("/track/:id", async (req, res) => {
     .replace("::ffff:", "");
 
   const referer = req.headers["referer"] || "Direct";
-
-  // Parse user agent
   const deviceInfo = parseUserAgent(userAgent);
-
-  // Detect open type
   const openInfo = detectOpenType(userAgent, req.headers);
 
   try {
     const data = await readData();
-    const email = data.emails.find((e) => e.trackingId === trackId);
 
-    if (email) {
+    // Find email across all users
+    let foundUser = null;
+    let email = null;
+
+    for (const [userId, userData] of Object.entries(data.users)) {
+      const foundEmail = userData.emails.find((e) => e.trackingId === trackId);
+      if (foundEmail) {
+        foundUser = userId;
+        email = foundEmail;
+        break;
+      }
+    }
+
+    if (email && foundUser) {
       const now = new Date().toISOString();
       const inGracePeriod = isWithinGracePeriod(email.createdAt, now);
 
@@ -266,7 +269,6 @@ app.get("/track/:id", async (req, res) => {
       email.opens = email.opens || [];
       email.opens.push(openEvent);
 
-      // Update counts and last opened (only for real opens OUTSIDE grace period)
       const validOpens = email.opens.filter(
         (o) => o.isReal && !o.inGracePeriod
       );
@@ -282,7 +284,6 @@ app.get("/track/:id", async (req, res) => {
     console.error("Error tracking open:", error);
   }
 
-  // Return 1x1 transparent GIF
   const pixel = Buffer.from(
     "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
     "base64"
@@ -299,12 +300,22 @@ app.get("/track/:id", async (req, res) => {
 });
 
 // Create new tracked email
-app.post("/api/emails", async (req, res) => {
+app.post("/api/emails", validateApiKey, async (req, res) => {
   try {
     const { subject, recipient } = req.body;
 
     if (!subject) {
       return res.status(400).json({ error: "Subject is required" });
+    }
+
+    const data = await readData();
+
+    // Initialize user if doesn't exist
+    if (!data.users[req.apiKey]) {
+      data.users[req.apiKey] = {
+        emails: [],
+        createdAt: new Date().toISOString(),
+      };
     }
 
     const trackingId = uuidv4();
@@ -324,8 +335,7 @@ app.post("/api/emails", async (req, res) => {
       lastOpened: null,
     };
 
-    const data = await readData();
-    data.emails.unshift(newEmail);
+    data.users[req.apiKey].emails.unshift(newEmail);
     await writeData(data);
 
     res.json(newEmail);
@@ -335,11 +345,16 @@ app.post("/api/emails", async (req, res) => {
   }
 });
 
-// Get all tracked emails
-app.get("/api/emails", async (req, res) => {
+// Get all tracked emails for user
+app.get("/api/emails", validateApiKey, async (req, res) => {
   try {
     const data = await readData();
-    const sortedEmails = data.emails.sort(
+
+    if (!data.users[req.apiKey]) {
+      return res.json([]);
+    }
+
+    const sortedEmails = data.users[req.apiKey].emails.sort(
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
     );
     res.json(sortedEmails);
@@ -350,10 +365,17 @@ app.get("/api/emails", async (req, res) => {
 });
 
 // Get specific email details
-app.get("/api/emails/:id", async (req, res) => {
+app.get("/api/emails/:id", validateApiKey, async (req, res) => {
   try {
     const data = await readData();
-    const email = data.emails.find((e) => e.id === req.params.id);
+
+    if (!data.users[req.apiKey]) {
+      return res.status(404).json({ error: "Email not found" });
+    }
+
+    const email = data.users[req.apiKey].emails.find(
+      (e) => e.id === req.params.id
+    );
 
     if (!email) {
       return res.status(404).json({ error: "Email not found" });
@@ -367,16 +389,23 @@ app.get("/api/emails/:id", async (req, res) => {
 });
 
 // Delete tracked email
-app.delete("/api/emails/:id", async (req, res) => {
+app.delete("/api/emails/:id", validateApiKey, async (req, res) => {
   try {
     const data = await readData();
-    const index = data.emails.findIndex((e) => e.id === req.params.id);
+
+    if (!data.users[req.apiKey]) {
+      return res.status(404).json({ error: "Email not found" });
+    }
+
+    const index = data.users[req.apiKey].emails.findIndex(
+      (e) => e.id === req.params.id
+    );
 
     if (index === -1) {
       return res.status(404).json({ error: "Email not found" });
     }
 
-    data.emails.splice(index, 1);
+    data.users[req.apiKey].emails.splice(index, 1);
     await writeData(data);
 
     res.json({ message: "Email deleted successfully" });
@@ -386,7 +415,6 @@ app.delete("/api/emails/:id", async (req, res) => {
   }
 });
 
-// Initialize and start server
 async function startServer() {
   await initDataFile();
   app.listen(PORT, () => {

@@ -13,7 +13,7 @@
         }
 
         body {
-            width: 380px;
+            width: 400px;
             font-family: 'IBM Plex Mono', monospace;
             background: #000000;
             color: rgba(255, 255, 255, 0.87);
@@ -128,7 +128,8 @@
             letter-spacing: 0.03rem;
         }
 
-        input[type="text"] {
+        input[type="text"],
+        input[type="password"] {
             width: 100%;
             background: rgba(255, 255, 255, 0.04);
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -139,7 +140,8 @@
             font-size: 0.75rem;
         }
 
-        input[type="text"]:focus {
+        input[type="text"]:focus,
+        input[type="password"]:focus {
             outline: none;
             border-color: rgba(255, 255, 255, 0.25);
             background: rgba(255, 255, 255, 0.06);
@@ -157,6 +159,7 @@
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.3s ease;
+            margin-bottom: 8px;
         }
 
         .button:hover {
@@ -242,7 +245,22 @@
             margin-bottom: 8px;
         }
 
-        .debug-section {
+        .warning-box {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 16px;
+        }
+
+        .warning-title {
+            font-size: 0.75rem;
+            color: rgba(239, 68, 68, 0.9);
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .info-box {
             background: rgba(59, 130, 246, 0.05);
             border: 1px solid rgba(59, 130, 246, 0.15);
             border-radius: 8px;
@@ -250,16 +268,9 @@
             margin-bottom: 16px;
         }
 
-        .debug-title {
-            font-size: 0.75rem;
-            color: rgba(59, 130, 246, 0.9);
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
-
-        .debug-text {
+        .info-box-text {
             font-size: 0.7rem;
-            color: rgba(255, 255, 255, 0.5);
+            color: rgba(255, 255, 255, 0.6);
             line-height: 1.4;
         }
     </style>
@@ -274,22 +285,37 @@
         ✓ Auto-tracking enabled
     </div>
 
+    <div id="no-api-key-warning" class="warning-box" style="display:none;">
+        <div class="warning-title">⚠️ API Key Required</div>
+        <div class="info-text">
+            You need an API key to use email tracking.
+            <br><br>
+            Get one from the dashboard or generate a new one below.
+        </div>
+    </div>
+
     <div class="highlight-box">
         <div class="emoji-large">🟢</div>
         <div class="highlight-title">Look for the green popup!</div>
         <div class="step">Compose an email in Gmail</div>
-        <div class="step">Wait 2-3 seconds</div>
-        <div class="step">Green "Tracking Active" popup appears bottom-right</div>
-        <div class="step">Send your email!</div>
+        <div class="step">Add recipient first</div>
+        <div class="step">Click into message body</div>
+        <div class="step">Green "Tracking Active" popup appears</div>
     </div>
 
-    <div class="debug-section">
-        <div class="debug-title">🔍 Debug Tips</div>
-        <div class="debug-text">
-            If green popup doesn't show:
-            <br>• Right-click Gmail → Inspect → Console
-            <br>• Look for "🚀 Email Tracker" messages
-            <br>• Check server URL is correct below
+    <div class="section">
+        <div class="section-title">API Key</div>
+        
+        <div class="input-group">
+            <label class="label">Your API Key</label>
+            <input type="password" id="apiKey" placeholder="paste your api key">
+        </div>
+
+        <button class="button" id="generateKey">Generate New Key</button>
+        
+        <div id="new-key-display" style="display:none; margin-top: 12px;">
+            <div class="label">New API Key (save this!):</div>
+            <input type="text" id="newKeyValue" readonly style="font-size: 0.65rem; margin-bottom: 8px;">
         </div>
     </div>
 
@@ -309,16 +335,16 @@
             <input type="text" id="apiUrl" placeholder="https://email-tracker-v3.onrender.com" value="https://email-tracker-v3.onrender.com">
         </div>
 
-        <button class="button button-primary" id="saveSettings">Save Settings</button>
+        <button class="button button-primary" id="saveSettings">Save All Settings</button>
     </div>
 
-    <div class="section">
-        <div class="section-title">Quick Info</div>
-        <p class="info-text">
-            When enabled, a <strong style="color: rgba(34, 197, 94, 1);">green popup</strong> appears bottom-right when you compose emails.
-            <br><br>
-            Click it to see the tracking URL. Opens are tracked after 60 seconds.
-        </p>
+    <div class="info-box">
+        <div class="info-box-text">
+            <strong>How it works:</strong>
+            <br>• Extension automatically adds tracking pixel to your emails
+            <br>• Each user gets their own API key
+            <br>• Your emails are private to your API key
+        </div>
     </div>
 
     <div class="divider"></div>

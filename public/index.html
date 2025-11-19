@@ -58,7 +58,8 @@
             border-color: rgba(255, 255, 255, 0.15);
         }
 
-        input[type="text"] {
+        input[type="text"],
+        input[type="password"] {
             background: rgba(255, 255, 255, 0.04);
             border: 1px solid rgba(255, 255, 255, 0.1);
             color: rgba(255, 255, 255, 0.9);
@@ -70,7 +71,8 @@
             width: 100%;
         }
 
-        input[type="text"]:focus {
+        input[type="text"]:focus,
+        input[type="password"]:focus {
             outline: none;
             border-color: rgba(255, 255, 255, 0.25);
             background: rgba(255, 255, 255, 0.06);
@@ -329,6 +331,43 @@
             display: inline-block;
         }
 
+        #api-auth-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #000000;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #main-app {
+            display: none;
+        }
+
+        #main-app.active {
+            display: block;
+        }
+
+        .logout-button {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: rgba(239, 68, 68, 0.9);
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .logout-button:hover {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
         @media (max-width: 768px) {
             .brand-title {
                 font-size: 2rem;
@@ -337,106 +376,161 @@
     </style>
 </head>
 <body class="antialiased">
+    <!-- API Key Authentication Screen -->
+    <div id="api-auth-screen">
+        <div class="max-w-md w-full mx-auto p-6">
+            <div class="text-center mb-8">
+                <h1 class="brand-title text-4xl">email tracker</h1>
+                <p class="brand-subtitle mt-2">enter your api key to continue</p>
+            </div>
 
-    <div class="max-w-4xl mx-auto p-6 min-h-screen">
-        <!-- Header -->
-        <div class="text-center mb-12 mt-8">
-            <h1 class="brand-title">email tracker</h1>
-            <p class="brand-subtitle mt-2">track email opens with invisible pixels</p>
-        </div>
-
-        <!-- Create New Email Card -->
-        <div class="glass-card mb-10">
-            <div class="p-8">
-                <h2 class="text-lg font-medium text-white text-opacity-95 mb-6" style="letter-spacing: 0.03rem;">create new tracking link</h2>
-
+            <div class="glass-card p-8">
                 <div class="space-y-5">
                     <div>
-                        <label class="label-text block mb-2">email subject</label>
-                        <input type="text" id="subject-input" placeholder="weekly newsletter">
+                        <label class="label-text block mb-2">api key</label>
+                        <input type="password" id="api-key-input" placeholder="paste your api key">
                     </div>
 
-                    <div>
-                        <label class="label-text block mb-2">recipient (optional)</label>
-                        <input type="text" id="recipient-input" placeholder="john@example.com">
-                    </div>
-
-                    <button id="create-btn" class="action-button w-full mt-2">
-                        create tracking link
+                    <button id="auth-btn" class="action-button w-full">
+                        continue
                     </button>
-                </div>
 
-                <!-- Success Message -->
-                <div id="success-message" class="hidden">
                     <div class="section-divider"></div>
 
-                    <div class="instructions-box">
-                        <div class="text-sm text-white text-opacity-90 mb-4 font-medium">
-                            ✓ tracking link created!
-                        </div>
-
-                        <div class="text-xs text-white text-opacity-60 mb-4 font-medium" style="letter-spacing: 0.05rem;">
-                            HOW TO ADD TO YOUR EMAIL:
-                        </div>
-
-                        <div class="instruction-step">
-                            In Gmail: Click the image icon (📷), select "Web Address (URL)", paste the tracking URL below
-                        </div>
-
-                        <div class="instruction-step">
-                            Or use the Chrome extension for automatic tracking!
-                        </div>
-
-                        <div class="instruction-step">
-                            Note: Opens within first 45 seconds are ignored (while you're composing)
-                        </div>
-                    </div>
-
-                    <div class="mt-5">
-                        <div class="text-xs text-white text-opacity-60 mb-2 font-medium" style="letter-spacing: 0.05rem;">
-                            TRACKING URL:
-                        </div>
-                        <div class="tracking-url-box" id="created-url"></div>
-                    </div>
-
-                    <div class="flex gap-3 mt-4">
-                        <button id="copy-url-btn" class="copy-button flex-1">
-                            copy tracking url
+                    <div class="text-center">
+                        <p class="text-xs text-white text-opacity-60 mb-3">don't have an api key?</p>
+                        <button id="generate-key-btn" class="copy-button">
+                            generate new api key
                         </button>
-                        <button id="copy-html-btn" class="copy-button flex-1">
-                            copy html snippet
-                        </button>
+                    </div>
+                </div>
+
+                <div id="new-key-display" class="hidden mt-5">
+                    <div class="section-divider"></div>
+                    <div class="text-xs text-white text-opacity-60 mb-2">your new api key:</div>
+                    <div class="tracking-url-box" id="new-key-value"></div>
+                    <div class="text-xs text-white text-opacity-40 mt-3">
+                        ⚠️ save this key! you won't see it again
                     </div>
                 </div>
             </div>
         </div>
+    </div>
 
-        <!-- Tracked Emails List -->
-        <div class="glass-card">
-            <div class="p-8">
-                <div class="flex justify-between items-center mb-8">
-                    <h2 class="text-lg font-medium text-white text-opacity-95" style="letter-spacing: 0.03rem;">tracked emails</h2>
-                    <div class="flex items-center gap-3">
-                        <span class="text-xs text-white text-opacity-50">auto-refresh in <span id="countdown">10</span>s</span>
-                        <button id="refresh-btn" class="copy-button">
-                            refresh
+    <!-- Main App -->
+    <div id="main-app">
+        <div class="max-w-4xl mx-auto p-6 min-h-screen">
+            <!-- Header -->
+            <div class="text-center mb-8 mt-8">
+                <h1 class="brand-title">email tracker</h1>
+                <p class="brand-subtitle mt-2">track email opens with invisible pixels</p>
+                <button id="logout-btn" class="logout-button mt-4">
+                    logout
+                </button>
+            </div>
+
+            <!-- Create New Email Card -->
+            <div class="glass-card mb-10">
+                <div class="p-8">
+                    <h2 class="text-lg font-medium text-white text-opacity-95 mb-6" style="letter-spacing: 0.03rem;">create new tracking link</h2>
+
+                    <div class="space-y-5">
+                        <div>
+                            <label class="label-text block mb-2">email subject</label>
+                            <input type="text" id="subject-input" placeholder="weekly newsletter">
+                        </div>
+
+                        <div>
+                            <label class="label-text block mb-2">recipient (optional)</label>
+                            <input type="text" id="recipient-input" placeholder="john@example.com">
+                        </div>
+
+                        <button id="create-btn" class="action-button w-full mt-2">
+                            create tracking link
                         </button>
                     </div>
-                </div>
 
-                <div id="emails-container">
-                    <!-- Emails will be inserted here -->
+                    <!-- Success Message -->
+                    <div id="success-message" class="hidden">
+                        <div class="section-divider"></div>
+
+                        <div class="instructions-box">
+                            <div class="text-sm text-white text-opacity-90 mb-4 font-medium">
+                                ✓ tracking link created!
+                            </div>
+
+                            <div class="text-xs text-white text-opacity-60 mb-4 font-medium" style="letter-spacing: 0.05rem;">
+                                HOW TO ADD TO YOUR EMAIL:
+                            </div>
+
+                            <div class="instruction-step">
+                                In Gmail: Click the image icon (📷), select "Web Address (URL)", paste the tracking URL below
+                            </div>
+
+                            <div class="instruction-step">
+                                Or use the Chrome extension for automatic tracking!
+                            </div>
+
+                            <div class="instruction-step">
+                                Note: Opens within first 45 seconds are ignored (while you're composing)
+                            </div>
+                        </div>
+
+                        <div class="mt-5">
+                            <div class="text-xs text-white text-opacity-60 mb-2 font-medium" style="letter-spacing: 0.05rem;">
+                                TRACKING URL:
+                            </div>
+                            <div class="tracking-url-box" id="created-url"></div>
+                        </div>
+
+                        <div class="flex gap-3 mt-4">
+                            <button id="copy-url-btn" class="copy-button flex-1">
+                                copy tracking url
+                            </button>
+                            <button id="copy-html-btn" class="copy-button flex-1">
+                                copy html snippet
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tracked Emails List -->
+            <div class="glass-card">
+                <div class="p-8">
+                    <div class="flex justify-between items-center mb-8">
+                        <h2 class="text-lg font-medium text-white text-opacity-95" style="letter-spacing: 0.03rem;">tracked emails</h2>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-white text-opacity-50">auto-refresh in <span id="countdown">10</span>s</span>
+                            <button id="refresh-btn" class="copy-button">
+                                refresh
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="emails-container">
+                        <!-- Emails will be inserted here -->
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        let apiKey = localStorage.getItem('emailTrackerApiKey');
         let countdownInterval;
         let countdownValue = 10;
 
         const getEl = (id) => document.getElementById(id);
         const UI = {
+            authScreen: getEl('api-auth-screen'),
+            mainApp: getEl('main-app'),
+            apiKeyInput: getEl('api-key-input'),
+            authBtn: getEl('auth-btn'),
+            generateKeyBtn: getEl('generate-key-btn'),
+            newKeyDisplay: getEl('new-key-display'),
+            newKeyValue: getEl('new-key-value'),
+            logoutBtn: getEl('logout-btn'),
             subjectInput: getEl('subject-input'),
             recipientInput: getEl('recipient-input'),
             createBtn: getEl('create-btn'),
@@ -450,6 +544,62 @@
         };
 
         let currentTrackingUrl = '';
+
+        function showMainApp() {
+            UI.authScreen.style.display = 'none';
+            UI.mainApp.classList.add('active');
+            loadEmails();
+            startCountdown();
+        }
+
+        function showAuthScreen() {
+            UI.authScreen.style.display = 'flex';
+            UI.mainApp.classList.remove('active');
+            if (countdownInterval) clearInterval(countdownInterval);
+        }
+
+        function logout() {
+            localStorage.removeItem('emailTrackerApiKey');
+            apiKey = null;
+            showAuthScreen();
+        }
+
+        async function generateNewKey() {
+            UI.generateKeyBtn.disabled = true;
+            UI.generateKeyBtn.textContent = 'generating...';
+
+            try {
+                const res = await fetch('/api/auth/generate-key', {
+                    method: 'POST'
+                });
+
+                if (!res.ok) throw new Error('Failed to generate key');
+
+                const data = await res.json();
+                UI.newKeyValue.textContent = data.apiKey;
+                UI.newKeyDisplay.classList.remove('hidden');
+                UI.apiKeyInput.value = data.apiKey;
+
+            } catch (error) {
+                console.error(error);
+                alert('Failed to generate API key');
+            } finally {
+                UI.generateKeyBtn.disabled = false;
+                UI.generateKeyBtn.textContent = 'generate new api key';
+            }
+        }
+
+        function authenticateWithKey() {
+            const key = UI.apiKeyInput.value.trim();
+            if (!key) {
+                alert('Please enter an API key');
+                return;
+            }
+
+            apiKey = key;
+            localStorage.setItem('emailTrackerApiKey', key);
+            showMainApp();
+        }
 
         function escapeHtml(text) {
             const div = document.createElement('div');
@@ -469,6 +619,24 @@
             return badges[openType] || badges['unknown'];
         }
 
+        async function apiRequest(url, options = {}) {
+            const headers = {
+                'Content-Type': 'application/json',
+                'X-API-Key': apiKey,
+                ...options.headers
+            };
+
+            const response = await fetch(url, { ...options, headers });
+
+            if (response.status === 401) {
+                alert('Invalid API key. Please log in again.');
+                logout();
+                throw new Error('Unauthorized');
+            }
+
+            return response;
+        }
+
         async function createTrackedEmail() {
             const subject = UI.subjectInput.value.trim();
             const recipient = UI.recipientInput.value.trim();
@@ -482,9 +650,8 @@
             UI.createBtn.innerHTML = 'creating...<span class="loading-spinner"></span>';
 
             try {
-                const res = await fetch('/api/emails', {
+                const res = await apiRequest('/api/emails', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ subject, recipient: recipient || 'Unknown' })
                 });
 
@@ -493,23 +660,21 @@
                 const email = await res.json();
                 currentTrackingUrl = email.trackingUrl;
 
-                // Show success message
                 UI.createdUrl.textContent = email.trackingUrl;
                 UI.successMessage.classList.remove('hidden');
 
-                // Clear inputs
                 UI.subjectInput.value = '';
                 UI.recipientInput.value = '';
 
-                // Scroll to success message
                 UI.successMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-                // Refresh the list
                 await loadEmails();
 
             } catch (error) {
                 console.error(error);
-                alert('Failed to create tracking link');
+                if (error.message !== 'Unauthorized') {
+                    alert('Failed to create tracking link');
+                }
             } finally {
                 UI.createBtn.disabled = false;
                 UI.createBtn.textContent = 'create tracking link';
@@ -526,19 +691,16 @@
                 hour12: true
             });
 
-            // If today, just show time
             if (date.toDateString() === now.toDateString()) {
                 return `today at ${timeStr}`;
             }
 
-            // If yesterday
             const yesterday = new Date(now);
             yesterday.setDate(yesterday.getDate() - 1);
             if (date.toDateString() === yesterday.toDateString()) {
                 return `yesterday at ${timeStr}`;
             }
 
-            // Otherwise show date + time
             const dateStr = date.toLocaleDateString('en-US', {
                 month: 'short',
                 day: 'numeric',
@@ -549,7 +711,6 @@
         }
 
         function renderEmail(email) {
-            // Only count opens that are real AND outside grace period
             const validOpens = email.opens.filter(o => o.isReal && !o.inGracePeriod);
             const gracePeriodOpens = email.opens.filter(o => o.inGracePeriod);
             const botOpens = email.opens.filter(o => !o.isReal && !o.inGracePeriod);
@@ -577,13 +738,11 @@
                     const timestamp = formatTimestamp(open.timestamp);
                     const typeBadge = getOpenTypeBadge(open.openType);
 
-                    // Device info
                     let deviceInfo = '';
                     if (open.deviceInfo) {
                         deviceInfo = `${open.deviceInfo.device} • ${open.deviceInfo.os} • ${open.deviceInfo.browser}`;
                     }
 
-                    // IP address
                     const ipInfo = open.ip ? `IP: ${open.ip}` : '';
 
                     opensDetailsHtml += `
@@ -603,10 +762,9 @@
                 opensDetailsHtml += '</div>';
             }
 
-            // Show grace period note if there are opens in grace period
             let gracePeriodNote = '';
             if (gracePeriodOpens.length > 0) {
-                gracePeriodNote = `<div class="text-xs text-white text-opacity-40 mt-3">(${gracePeriodOpens.length} opens ignored - within 60s grace period)</div>`;
+                gracePeriodNote = `<div class="text-xs text-white text-opacity-40 mt-3">(${gracePeriodOpens.length} opens ignored - within 45s grace period)</div>`;
             }
 
             return `
@@ -650,7 +808,7 @@
 
         async function loadEmails() {
             try {
-                const res = await fetch('/api/emails');
+                const res = await apiRequest('/api/emails');
                 if (!res.ok) throw new Error('Failed to load emails');
 
                 const emails = await res.json();
@@ -670,12 +828,14 @@
                 resetCountdown();
             } catch (error) {
                 console.error(error);
-                UI.emailsContainer.innerHTML = `
-                    <div class="empty-state">
-                        <div>failed to load emails</div>
-                        <button class="copy-button mt-4" onclick="loadEmails()">retry</button>
-                    </div>
-                `;
+                if (error.message !== 'Unauthorized') {
+                    UI.emailsContainer.innerHTML = `
+                        <div class="empty-state">
+                            <div>failed to load emails</div>
+                            <button class="copy-button mt-4" onclick="loadEmails()">retry</button>
+                        </div>
+                    `;
+                }
             }
         }
 
@@ -683,13 +843,15 @@
             if (!confirm('Delete this tracked email?')) return;
 
             try {
-                const res = await fetch(`/api/emails/${id}`, { method: 'DELETE' });
+                const res = await apiRequest(`/api/emails/${id}`, { method: 'DELETE' });
                 if (!res.ok) throw new Error('Failed to delete email');
 
                 await loadEmails();
             } catch (error) {
                 console.error(error);
-                alert('Failed to delete email');
+                if (error.message !== 'Unauthorized') {
+                    alert('Failed to delete email');
+                }
             }
         }
 
@@ -721,6 +883,9 @@
         }
 
         // Event listeners
+        UI.authBtn.addEventListener('click', authenticateWithKey);
+        UI.generateKeyBtn.addEventListener('click', generateNewKey);
+        UI.logoutBtn.addEventListener('click', logout);
         UI.createBtn.addEventListener('click', createTrackedEmail);
         UI.refreshBtn.addEventListener('click', loadEmails);
 
@@ -733,7 +898,10 @@
             copyToClipboard(currentTrackingUrl, 'URL copied!');
         });
 
-        // Allow Enter key to create
+        UI.apiKeyInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') authenticateWithKey();
+        });
+
         UI.subjectInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') createTrackedEmail();
         });
@@ -742,9 +910,12 @@
             if (e.key === 'Enter') createTrackedEmail();
         });
 
-        // Initial load and start countdown
-        loadEmails();
-        startCountdown();
+        // Initialize
+        if (apiKey) {
+            showMainApp();
+        } else {
+            showAuthScreen();
+        }
     </script>
 </body>
 </html>

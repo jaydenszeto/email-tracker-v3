@@ -1,16 +1,20 @@
-// Gmail Email Tracker Content Script with Smart Injection
+// Gmail Email Tracker Content Script with API Key Support
 console.log("🚀 Email Tracker: Extension loaded!");
 
 let API_URL = "https://email-tracker-v3.onrender.com";
 let AUTO_TRACK_ENABLED = true;
+let API_KEY = null;
 
 // Load settings from storage
-chrome.storage.sync.get(["apiUrl", "autoTrack"], (result) => {
+chrome.storage.sync.get(["apiUrl", "autoTrack", "apiKey"], (result) => {
   if (result.apiUrl) API_URL = result.apiUrl;
   if (result.autoTrack !== undefined) AUTO_TRACK_ENABLED = result.autoTrack;
+  if (result.apiKey) API_KEY = result.apiKey;
+  
   console.log("⚙️ Email Tracker: Settings loaded:", {
     API_URL,
     AUTO_TRACK_ENABLED,
+    hasApiKey: !!API_KEY
   });
 });
 
@@ -24,16 +28,16 @@ chrome.storage.onChanged.addListener((changes) => {
     AUTO_TRACK_ENABLED = changes.autoTrack.newValue;
     console.log("🔄 Email Tracker: Auto-track changed to:", AUTO_TRACK_ENABLED);
   }
+  if (changes.apiKey) {
+    API_KEY = changes.apiKey.newValue;
+    console.log("🔄 Email Tracker: API key updated");
+  }
 });
-
-// Track processed compose windows
-const processedComposeWindows = new Set();
 
 // Get email subject from compose window
 function getEmailSubject(composeWindow) {
   console.log("🔍 Email Tracker: Looking for email subject...");
 
-  // Try multiple selectors for subject
   const selectors = [
     'input[name="subjectbox"]',
     'input[placeholder*="Subject"]',
@@ -59,10 +63,8 @@ function getEmailSubject(composeWindow) {
 function getRecipientEmail(composeWindow) {
   console.log("🔍 Email Tracker: Looking for recipient email...");
 
-  // Try to find the "To" field
   const toField = composeWindow.querySelector('div[aria-label*="To"]');
   if (toField) {
-    // Try to find email span
     const emailSpan = toField.querySelector("span[email]");
     if (emailSpan) {
       const email = emailSpan.getAttribute("email");
@@ -70,7 +72,6 @@ function getRecipientEmail(composeWindow) {
       return email;
     }
 
-    // Try to find email in data-hovercard-id
     const hoverCards = toField.querySelectorAll("[data-hovercard-id]");
     for (const card of hoverCards) {
       const email = card.getAttribute("data-hovercard-id");
@@ -80,15 +81,11 @@ function getRecipientEmail(composeWindow) {
       }
     }
 
-    // Try to get text content with email
     const emailText = toField.textContent.trim();
     if (emailText && emailText.includes("@")) {
       const emailMatch = emailText.match(/[\w.-]+@[\w.-]+\.\w+/);
       if (emailMatch) {
-        console.log(
-          "✅ Email Tracker: Found recipient from text:",
-          emailMatch[0]
-        );
+        console.log("✅ Email Tracker: Found recipient from text:", emailMatch[0]);
         return emailMatch[0];
       }
     }
@@ -104,12 +101,20 @@ async function createTrackingPixel(subject, recipient) {
   console.log("📧 Subject:", subject);
   console.log("👤 Recipient:", recipient);
   console.log("🌐 Server URL:", API_URL);
+  console.log("🔑 Has API Key:", !!API_KEY);
+
+  if (!API_KEY) {
+    console.error("❌ Email Tracker: No API key configured!");
+    showErrorIndicator("No API key - configure in extension");
+    return null;
+  }
 
   try {
     const response = await fetch(`${API_URL}/api/emails`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-API-Key": API_KEY
       },
       body: JSON.stringify({
         subject: subject,
@@ -122,6 +127,13 @@ async function createTrackingPixel(subject, recipient) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("❌ Email Tracker: Server error:", errorText);
+      
+      if (response.status === 401) {
+        showErrorIndicator("Invalid API key");
+      } else {
+        showErrorIndicator(`Server error: ${response.status}`);
+      }
+      
       throw new Error(`Server returned ${response.status}: ${errorText}`);
     }
 
@@ -140,7 +152,6 @@ function injectTrackingPixel(composeWindow, trackingUrl) {
   console.log("🔗 Tracking URL:", trackingUrl);
 
   try {
-    // Find the email body editor
     const selectors = [
       'div[aria-label="Message Body"]',
       'div[contenteditable="true"][role="textbox"]',
@@ -161,40 +172,32 @@ function injectTrackingPixel(composeWindow, trackingUrl) {
       return false;
     }
 
-    // Create the invisible tracking pixel
     const pixelHtml = `<img src="${trackingUrl}" width="1" height="1" style="display:none !important; visibility:hidden !important; opacity:0 !important; position:absolute !important;" alt="" border="0" />`;
 
     console.log("🎨 Email Tracker: Pixel HTML:", pixelHtml);
 
-    // Try to append at the end using DOM manipulation
     try {
       const tempDiv = document.createElement("div");
       tempDiv.innerHTML = pixelHtml;
       const pixelElement = tempDiv.firstChild;
 
-      // Append to the editor
       editor.appendChild(pixelElement);
 
       console.log("✅ Email Tracker: Pixel injected successfully");
 
-      // Mark as injected
       composeWindow.setAttribute("data-tracker-injected", "true");
       composeWindow.setAttribute("data-tracking-url", trackingUrl);
 
       return true;
     } catch (e) {
-      console.error(
-        "⚠️ Email Tracker: appendChild failed, trying alternative method:",
-        e
-      );
+      console.error("⚠️ Email Tracker: appendChild failed, trying alternative method:", e);
     }
 
-    // Method 2: Try inserting at cursor position
     try {
       const selection = window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(editor);
-      range.collapse(false); // Move to end
+      range.collapse(false);
 
       const tempDiv = document.createElement("div");
       tempDiv.innerHTML = pixelHtml;
@@ -213,10 +216,7 @@ function injectTrackingPixel(composeWindow, trackingUrl) {
       return false;
     }
   } catch (error) {
-    console.error(
-      "❌ Email Tracker: Unexpected error during injection:",
-      error
-    );
+    console.error("❌ Email Tracker: Unexpected error during injection:", error);
     return false;
   }
 }
@@ -225,7 +225,6 @@ function injectTrackingPixel(composeWindow, trackingUrl) {
 function showTrackingIndicator(trackingUrl) {
   console.log("🟢 Email Tracker: Showing success indicator");
 
-  // Remove any existing indicator
   const existing = document.querySelector(".email-tracker-indicator");
   if (existing) {
     existing.remove();
@@ -262,7 +261,6 @@ function showTrackingIndicator(trackingUrl) {
         cursor: pointer;
     `;
 
-  // Add CSS animations
   const style = document.createElement("style");
   style.textContent = `
         @keyframes pulse-animation {
@@ -288,7 +286,6 @@ function showTrackingIndicator(trackingUrl) {
     `;
   document.head.appendChild(style);
 
-  // Click to show tracking URL
   indicator.onclick = () => {
     alert(
       `Tracking Pixel Added!\n\nTracking URL:\n${trackingUrl}\n\nThis invisible pixel will track when your email is opened. Check the dashboard after sending!`
@@ -298,7 +295,6 @@ function showTrackingIndicator(trackingUrl) {
   document.body.appendChild(indicator);
   console.log("✅ Email Tracker: Green indicator added to page");
 
-  // Auto-remove after 8 seconds
   setTimeout(() => {
     indicator.style.animation = "fadeOut 0.5s ease-out";
     setTimeout(() => indicator.remove(), 500);
@@ -344,62 +340,46 @@ async function injectTrackingOnBodyFocus(composeWindow) {
     return;
   }
 
-  // Check if already processed
   if (composeWindow.getAttribute("data-tracker-injected") === "true") {
     console.log("⏭️ Email Tracker: Tracking already added to this email");
     return;
   }
 
-  // Check if currently processing to prevent duplicate injections
   if (composeWindow.getAttribute("data-tracker-processing") === "true") {
-    console.log(
-      "⏳ Email Tracker: Already processing this compose window, skipping to prevent duplicates"
-    );
+    console.log("⏳ Email Tracker: Already processing this compose window, skipping to prevent duplicates");
     return;
   }
 
-  // Mark as processing
   composeWindow.setAttribute("data-tracker-processing", "true");
   console.log("🔒 Email Tracker: Locked processing for this compose window");
 
   try {
-    // Wait a moment for Gmail to update the DOM with recipient info
     console.log("⏳ Email Tracker: Waiting 500ms for Gmail to update...");
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    // Get recipient - THIS IS REQUIRED
     const recipient = getRecipientEmail(composeWindow);
 
     if (!recipient) {
-      console.log(
-        "⚠️ Email Tracker: No recipient found, cannot inject tracking pixel"
-      );
+      console.log("⚠️ Email Tracker: No recipient found, cannot inject tracking pixel");
       console.log("💡 Email Tracker: User needs to add a recipient first");
-      // Remove processing flag so we can try again later
       composeWindow.removeAttribute("data-tracker-processing");
       return;
     }
 
-    // Get subject - optional, will default to "No Subject"
     const subject = getEmailSubject(composeWindow);
 
-    console.log(
-      "✅ Email Tracker: Have all required info, creating tracking link..."
-    );
+    console.log("✅ Email Tracker: Have all required info, creating tracking link...");
     console.log("📧 Subject:", subject);
     console.log("👤 Recipient:", recipient);
 
-    // Create tracking pixel
     const trackingUrl = await createTrackingPixel(subject, recipient);
 
     if (!trackingUrl) {
       console.error("❌ Email Tracker: Failed to create tracking URL");
-      showErrorIndicator("Check server connection");
       composeWindow.removeAttribute("data-tracker-processing");
       return;
     }
 
-    // Inject the pixel
     console.log("💉 Email Tracker: Injecting pixel into email...");
     const success = injectTrackingPixel(composeWindow, trackingUrl);
 
@@ -407,7 +387,6 @@ async function injectTrackingOnBodyFocus(composeWindow) {
       console.log("🎉 Email Tracker: SUCCESS! Tracking pixel added to email");
       showTrackingIndicator(trackingUrl);
 
-      // Notify background script
       chrome.runtime.sendMessage({
         type: "TRACKING_ADDED",
         subject: subject,
@@ -429,17 +408,13 @@ async function injectTrackingOnBodyFocus(composeWindow) {
 function setupMessageBodyListener(composeWindow) {
   console.log("🎧 Email Tracker: Setting up message body listener...");
 
-  // Check if already set up
   if (composeWindow.getAttribute("data-tracker-listener") === "true") {
-    console.log(
-      "⏭️ Email Tracker: Listener already set up for this compose window"
-    );
+    console.log("⏭️ Email Tracker: Listener already set up for this compose window");
     return;
   }
 
   composeWindow.setAttribute("data-tracker-listener", "true");
 
-  // Find the message body editor
   const selectors = [
     'div[aria-label="Message Body"]',
     'div[contenteditable="true"][role="textbox"]',
@@ -450,22 +425,16 @@ function setupMessageBodyListener(composeWindow) {
   for (const selector of selectors) {
     editor = composeWindow.querySelector(selector);
     if (editor) {
-      console.log(
-        "✅ Email Tracker: Found message body with selector:",
-        selector
-      );
+      console.log("✅ Email Tracker: Found message body with selector:", selector);
       break;
     }
   }
 
   if (!editor) {
-    console.log(
-      "⚠️ Email Tracker: Could not find message body editor yet, will try again"
-    );
+    console.log("⚠️ Email Tracker: Could not find message body editor yet, will try again");
     return false;
   }
 
-  // Only use focus listener (more reliable than click)
   editor.addEventListener(
     "focus",
     () => {
@@ -473,7 +442,7 @@ function setupMessageBodyListener(composeWindow) {
       injectTrackingOnBodyFocus(composeWindow);
     },
     { once: true }
-  ); // Only trigger once per compose window
+  );
 
   console.log("✅ Email Tracker: Message body focus listener added");
   return true;
@@ -483,7 +452,6 @@ function setupMessageBodyListener(composeWindow) {
 function detectComposeWindows() {
   console.log("🔍 Email Tracker: Scanning for compose windows...");
 
-  // Multiple selectors to find compose windows
   const selectors = [
     'div[role="dialog"]',
     "div.n1tfz",
@@ -495,29 +463,19 @@ function detectComposeWindows() {
     const composeWindows = document.querySelectorAll(selector);
 
     if (composeWindows.length > 0) {
-      console.log(
-        `✅ Email Tracker: Found ${composeWindows.length} compose window(s) with selector: ${selector}`
-      );
+      console.log(`✅ Email Tracker: Found ${composeWindows.length} compose window(s) with selector: ${selector}`);
 
       composeWindows.forEach((composeWindow, index) => {
-        // Check if this looks like a compose window
-        const hasSubject = composeWindow.querySelector(
-          'input[name="subjectbox"]'
-        );
-        const hasEditor = composeWindow.querySelector(
-          'div[aria-label="Message Body"]'
-        );
+        const hasSubject = composeWindow.querySelector('input[name="subjectbox"]');
+        const hasEditor = composeWindow.querySelector('div[aria-label="Message Body"]');
 
         if (hasSubject || hasEditor) {
           console.log(`📝 Email Tracker: Found compose window #${index + 1}`);
 
-          // Set up listener if not already done
           if (!composeWindow.getAttribute("data-tracker-listener")) {
-            // Wait a moment for compose window to fully initialize
             setTimeout(() => {
               const success = setupMessageBodyListener(composeWindow);
               if (!success) {
-                // Retry after another delay if editor wasn't ready
                 setTimeout(() => setupMessageBodyListener(composeWindow), 1000);
               }
             }, 500);
@@ -553,7 +511,6 @@ function startObserving() {
 function init() {
   console.log("🚀 Email Tracker: Initializing extension...");
 
-  // Check if we're on Gmail
   if (!window.location.hostname.includes("mail.google.com")) {
     console.log("❌ Email Tracker: Not on Gmail, extension will not activate");
     return;
@@ -561,20 +518,15 @@ function init() {
 
   console.log("✅ Email Tracker: Confirmed we are on Gmail");
 
-  // Wait for Gmail to load
   const checkGmailLoaded = setInterval(() => {
     const mainElement = document.querySelector('div[role="main"]');
     if (mainElement) {
       clearInterval(checkGmailLoaded);
       console.log("✅ Email Tracker: Gmail fully loaded!");
       console.log("🎯 Email Tracker: Extension is ready to track emails");
-      console.log(
-        "📝 Email Tracker: Open a compose window and click into the message body to add tracking"
-      );
+      console.log("📝 Email Tracker: Open a compose window and click into the message body to add tracking");
 
       startObserving();
-
-      // Check for existing compose windows
       detectComposeWindows();
     }
   }, 1000);
