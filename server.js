@@ -10,7 +10,7 @@ const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/email-tracker";
 
 const GRACE_PERIOD_SECONDS = 10;
-const SELF_VIEW_WINDOW_SECONDS = 60;
+const SELF_VIEW_WINDOW_SECONDS = 5;
 
 app.use(cors());
 app.use(express.json());
