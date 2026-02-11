@@ -423,80 +423,10 @@
 
             <div class="text-center mb-8 mt-8">
                 <h1 class="brand-title">email tracker</h1>
-                <p class="brand-subtitle mt-2">track email opens with invisible pixels</p>
+                <p class="brand-subtitle mt-2">view your tracked email opens</p>
                 <button id="logout-btn" class="logout-button mt-4">
                     logout
                 </button>
-            </div>
-
-
-            <div class="glass-card mb-10">
-                <div class="p-8">
-                    <h2 class="text-lg font-medium text-white text-opacity-95 mb-6" style="letter-spacing: 0.03rem;">create new tracking link</h2>
-
-                    <div class="space-y-5">
-                        <div>
-                            <label class="label-text block mb-2">email subject</label>
-                            <input type="text" id="subject-input" placeholder="weekly newsletter">
-                        </div>
-
-                        <div>
-                            <label class="label-text block mb-2">recipient (optional)</label>
-                            <input type="text" id="recipient-input" placeholder="john@example.com">
-                        </div>
-
-                        <button id="create-btn" class="action-button w-full mt-2">
-                            create tracking link
-                        </button>
-                    </div>
-
-
-                    <div id="success-message" class="hidden">
-                        <div class="section-divider"></div>
-
-                        <div class="instructions-box">
-                            <div class="text-sm text-white text-opacity-90 mb-4 font-medium">
-                                ✓ tracking link created!
-                            </div>
-
-                            <div class="text-xs text-white text-opacity-60 mb-4 font-medium" style="letter-spacing: 0.05rem;">
-                                HOW TO ADD TO YOUR EMAIL:
-                            </div>
-
-                            <div class="instruction-step">
-                                In Gmail: Click the image icon (📷), select "Web Address (URL)", paste the tracking URL below
-                            </div>
-
-                            <div class="instruction-step">
-                                Or use the Chrome extension for automatic tracking!
-                            </div>
-
-                            <div class="instruction-step">
-                                Note: Only Gmail/Yahoo proxy opens are counted (most reliable)
-                            </div>
-
-                            <div class="instruction-step">
-                                Opens within first 10 seconds after sending are ignored
-                            </div>
-                        </div>
-
-                        <div class="mt-5">
-                            <div class="text-xs text-white text-opacity-60 mb-2 font-medium" style="letter-spacing: 0.05rem;">
-                                TRACKING URL:
-                            </div>
-                            <div class="tracking-url-box" id="created-url"></div>
-                        </div>
-
-                        <div class="flex gap-3 mt-4">
-                            <button id="copy-url-btn" class="copy-button flex-1">
-                                copy tracking url
-                            </button>
-                            <button id="copy-html-btn" class="copy-button flex-1">
-                                copy html snippet
-                            </button>
-                        </div>
-                    </div>
-                </div>
             </div>
 
 
@@ -535,19 +465,10 @@
             newKeyDisplay: getEl('new-key-display'),
             newKeyValue: getEl('new-key-value'),
             logoutBtn: getEl('logout-btn'),
-            subjectInput: getEl('subject-input'),
-            recipientInput: getEl('recipient-input'),
-            createBtn: getEl('create-btn'),
-            successMessage: getEl('success-message'),
-            createdUrl: getEl('created-url'),
-            copyHtmlBtn: getEl('copy-html-btn'),
-            copyUrlBtn: getEl('copy-url-btn'),
             emailsContainer: getEl('emails-container'),
             refreshBtn: getEl('refresh-btn'),
             countdown: getEl('countdown')
         };
-
-        let currentTrackingUrl = '';
 
         function showMainApp() {
             UI.authScreen.style.display = 'none';
@@ -641,50 +562,6 @@
             return response;
         }
 
-        async function createTrackedEmail() {
-            const subject = UI.subjectInput.value.trim();
-            const recipient = UI.recipientInput.value.trim();
-
-            if (!subject) {
-                alert('Please enter an email subject');
-                return;
-            }
-
-            UI.createBtn.disabled = true;
-            UI.createBtn.innerHTML = 'creating...<span class="loading-spinner"></span>';
-
-            try {
-                const res = await apiRequest('/api/emails', {
-                    method: 'POST',
-                    body: JSON.stringify({ subject, recipient: recipient || 'Unknown' })
-                });
-
-                if (!res.ok) throw new Error('Failed to create tracking link');
-
-                const email = await res.json();
-                currentTrackingUrl = email.trackingUrl;
-
-                UI.createdUrl.textContent = email.trackingUrl;
-                UI.successMessage.classList.remove('hidden');
-
-                UI.subjectInput.value = '';
-                UI.recipientInput.value = '';
-
-                UI.successMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
-                await loadEmails();
-
-            } catch (error) {
-                console.error(error);
-                if (error.message !== 'Unauthorized') {
-                    alert('Failed to create tracking link');
-                }
-            } finally {
-                UI.createBtn.disabled = false;
-                UI.createBtn.textContent = 'create tracking link';
-            }
-        }
-
         function formatTimestamp(isoString) {
             const date = new Date(isoString);
             const now = new Date();
@@ -736,21 +613,12 @@
                     const timestamp = formatTimestamp(open.timestamp);
                     const typeBadge = getOpenTypeBadge(open.openType);
 
-                    let deviceInfo = '';
-                    if (open.deviceInfo) {
-                        deviceInfo = `${open.deviceInfo.device} • ${open.deviceInfo.os} • ${open.deviceInfo.browser}`;
-                    }
-
-                    const ipInfo = open.ip ? `IP: ${open.ip}` : '';
-
                     opensDetailsHtml += `
                         <div class="open-detail">
-                            <div class="mb-2">
+                            <div>
                                 ${typeBadge}
                                 <span class="text-white text-opacity-70">${timestamp}</span>
                             </div>
-                            ${deviceInfo ? `<div class="text-white text-opacity-60 text-xs mb-1">${escapeHtml(deviceInfo)}</div>` : ''}
-                            ${ipInfo ? `<div class="text-white text-opacity-40 text-xs">${escapeHtml(ipInfo)}</div>` : ''}
                         </div>
                     `;
                 });
@@ -810,7 +678,7 @@
                         <div class="empty-state">
                             <div class="empty-state-icon">📧</div>
                             <div>no tracked emails yet</div>
-                            <div class="text-xs mt-2">create your first tracking link above</div>
+                            <div class="text-xs mt-2">use the chrome extension to start tracking</div>
                         </div>
                     `;
                 } else {
@@ -878,28 +746,10 @@
         UI.authBtn.addEventListener('click', authenticateWithKey);
         UI.generateKeyBtn.addEventListener('click', generateNewKey);
         UI.logoutBtn.addEventListener('click', logout);
-        UI.createBtn.addEventListener('click', createTrackedEmail);
         UI.refreshBtn.addEventListener('click', loadEmails);
-
-        UI.copyHtmlBtn.addEventListener('click', () => {
-            const html = `<img src="${currentTrackingUrl}" width="1" height="1" style="display:none" />`;
-            copyToClipboard(html, 'HTML snippet copied!');
-        });
-
-        UI.copyUrlBtn.addEventListener('click', () => {
-            copyToClipboard(currentTrackingUrl, 'URL copied!');
-        });
 
         UI.apiKeyInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') authenticateWithKey();
-        });
-
-        UI.subjectInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') createTrackedEmail();
-        });
-
-        UI.recipientInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') createTrackedEmail();
         });
 
 

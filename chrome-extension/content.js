@@ -874,11 +874,86 @@ function startInboxMonitoring() {
   }, 30000);
 }
 
+// --- Self-view detection ---
+
+const reportedSelfViews = new Map();
+
+async function detectAndReportSelfView() {
+  if (!API_KEY) return;
+
+  const hash = window.location.hash;
+  // If there's no path segment after the #, we're on a list view — skip
+  if (!hash || !hash.includes("/")) return;
+
+  // Wait for Gmail DOM to render the email content
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  // Extract subject from the email view
+  const subjectSelectors = [
+    "h2.hP",
+    "h2[data-thread-perm-id]",
+    "div.ha h2",
+  ];
+
+  let subject = null;
+  for (const selector of subjectSelectors) {
+    const el = document.querySelector(selector);
+    if (el) {
+      subject = el.textContent.trim();
+      if (subject) break;
+    }
+  }
+
+  if (!subject) return;
+
+  const normalizedSubject = subject.toLowerCase().trim();
+
+  // Deduplicate: skip if same subject reported within 5 minutes
+  const lastReport = reportedSelfViews.get(normalizedSubject);
+  if (lastReport && Date.now() - lastReport < 5 * 60 * 1000) return;
+
+  // Match subject against tracked emails
+  const trackedEmails = await fetchTrackedEmails();
+  const matchedEmail = trackedEmails.find(
+    (e) => e.subject.toLowerCase().trim() === normalizedSubject
+  );
+
+  if (!matchedEmail) return;
+
+  try {
+    const response = await fetch(
+      `${API_URL}/api/emails/${matchedEmail.id}/report-self-view`,
+      {
+        method: "POST",
+        headers: {
+          "X-API-Key": API_KEY,
+        },
+      }
+    );
+
+    if (response.ok) {
+      reportedSelfViews.set(normalizedSubject, Date.now());
+      console.log(
+        `🔕 Email Tracker: Self-view reported for "${subject}"`
+      );
+    }
+  } catch (error) {
+    console.error("❌ Email Tracker: Error reporting self-view:", error);
+  }
+}
+
+window.addEventListener("hashchange", () => {
+  detectAndReportSelfView();
+});
+
+// --- End self-view detection ---
+
 console.log("🎬 Email Tracker: Content script starting...");
 init();
 
 setTimeout(() => {
   if (window.location.hostname.includes("mail.google.com")) {
     startInboxMonitoring();
+    detectAndReportSelfView();
   }
 }, 3000);

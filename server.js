@@ -10,6 +10,7 @@ const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/email-tracker";
 
 const GRACE_PERIOD_SECONDS = 10;
+const SELF_VIEW_WINDOW_SECONDS = 60;
 
 app.use(cors());
 app.use(express.json());
@@ -21,34 +22,20 @@ const emailSchema = new mongoose.Schema({
   trackingUrl: String,
   subject: String,
   recipient: String,
-  senderIp: String,
   createdAt: String,
   sentAt: String,
   opens: [
     {
       timestamp: String,
       userAgent: String,
-      ip: String,
       referer: String,
       openType: String,
       isReal: Boolean,
-      isSelfView: Boolean,
-      inGracePeriod: Boolean,
-      deviceInfo: {
-        os: String,
-        browser: String,
-        device: String,
-      },
-      headers: {
-        via: String,
-        accept: String,
-        acceptLanguage: String,
-        acceptEncoding: String,
-      },
     },
   ],
   openCount: Number,
   lastOpened: String,
+  selfViewReports: [String],
 });
 
 const userSchema = new mongoose.Schema({
@@ -71,69 +58,6 @@ async function connectDB() {
 
 function generateApiKey() {
   return crypto.randomBytes(32).toString("hex");
-}
-
-function parseUserAgent(userAgent) {
-  if (!userAgent) {
-    return { os: "Unknown", browser: "Unknown", device: "Unknown" };
-  }
-
-  const ua = userAgent.toLowerCase();
-
-  let os = "Unknown";
-  if (ua.includes("iphone")) os = "iOS (iPhone)";
-  else if (ua.includes("ipad")) os = "iOS (iPad)";
-  else if (ua.includes("android")) {
-    const match = ua.match(/android\s+([\d.]+)/);
-    os = match ? `Android ${match[1]}` : "Android";
-  } else if (ua.includes("mac os x") || ua.includes("macintosh")) {
-    const match = ua.match(/mac os x ([\d_]+)/);
-    if (match) {
-      const version = match[1].replace(/_/g, ".");
-      os = `macOS ${version}`;
-    } else {
-      os = "macOS";
-    }
-  } else if (ua.includes("windows nt 10.0")) os = "Windows 10/11";
-  else if (ua.includes("windows nt 6.3")) os = "Windows 8.1";
-  else if (ua.includes("windows nt 6.2")) os = "Windows 8";
-  else if (ua.includes("windows nt 6.1")) os = "Windows 7";
-  else if (ua.includes("windows")) os = "Windows";
-  else if (ua.includes("linux") && !ua.includes("android")) os = "Linux";
-  else if (ua.includes("cros")) os = "Chrome OS";
-
-  let browser = "Unknown";
-  if (ua.includes("edg/") || ua.includes("edge/")) {
-    browser = "Edge";
-  } else if (ua.includes("opr/") || ua.includes("opera")) {
-    browser = "Opera";
-  } else if (ua.includes("brave")) {
-    browser = "Brave";
-  } else if (ua.includes("chrome/") || ua.includes("crios/")) {
-    const match = ua.match(/chrome\/([\d.]+)/);
-    browser = match ? `Chrome ${match[1].split(".")[0]}` : "Chrome";
-  } else if (ua.includes("chromium")) {
-    browser = "Chromium";
-  } else if (ua.includes("firefox") || ua.includes("fxios")) {
-    const match = ua.match(/firefox\/([\d.]+)/);
-    browser = match ? `Firefox ${match[1].split(".")[0]}` : "Firefox";
-  } else if (ua.includes("safari/") && !ua.includes("chrome")) {
-    const match = ua.match(/version\/([\d.]+)/);
-    browser = match ? `Safari ${match[1].split(".")[0]}` : "Safari";
-  } else if (ua.includes("msie") || ua.includes("trident/")) {
-    browser = "Internet Explorer";
-  }
-
-  let device = "Desktop/Laptop";
-  if (ua.includes("mobile") || ua.includes("iphone") || ua.includes("ipod")) {
-    device = "Mobile";
-  } else if (ua.includes("tablet") || ua.includes("ipad")) {
-    device = "Tablet";
-  } else if (ua.includes("android") && !ua.includes("mobile")) {
-    device = "Tablet";
-  }
-
-  return { os, browser, device };
 }
 
 function detectOpenType(userAgent, headers) {
@@ -199,14 +123,26 @@ function detectOpenType(userAgent, headers) {
 }
 
 function isWithinGracePeriod(email, openTimestamp) {
-  if (!email.sentAt) {
-    return true;
+  const referenceTime = email.sentAt || email.createdAt;
+  if (!referenceTime) {
+    return false;
   }
 
-  const sentTime = new Date(email.sentAt).getTime();
+  const sentTime = new Date(referenceTime).getTime();
   const openTime = new Date(openTimestamp).getTime();
   const diffSeconds = (openTime - sentTime) / 1000;
   return diffSeconds < GRACE_PERIOD_SECONDS;
+}
+
+function isNearSelfViewReport(email, timestamp) {
+  if (!email.selfViewReports || email.selfViewReports.length === 0) {
+    return false;
+  }
+  const openTime = new Date(timestamp).getTime();
+  return email.selfViewReports.some((reportTs) => {
+    const reportTime = new Date(reportTs).getTime();
+    return Math.abs(openTime - reportTime) <= SELF_VIEW_WINDOW_SECONDS * 1000;
+  });
 }
 
 async function validateApiKey(req, res, next) {
@@ -216,8 +152,17 @@ async function validateApiKey(req, res, next) {
     return res.status(401).json({ error: "API key required" });
   }
 
-  req.apiKey = apiKey;
-  next();
+  try {
+    const user = await User.findOne({ apiKey });
+    if (!user) {
+      return res.status(401).json({ error: "Invalid API key" });
+    }
+    req.apiKey = apiKey;
+    next();
+  } catch (error) {
+    console.error("Error validating API key:", error);
+    res.status(500).json({ error: "Authentication error" });
+  }
 }
 
 app.post("/api/auth/generate-key", async (req, res) => {
@@ -242,20 +187,7 @@ app.post("/api/auth/generate-key", async (req, res) => {
 app.get("/track/:id", async (req, res) => {
   const trackId = req.params.id;
   const userAgent = req.headers["user-agent"] || "Unknown";
-
-  const ip = (
-    req.headers["x-forwarded-for"] ||
-    req.headers["x-real-ip"] ||
-    req.connection.remoteAddress ||
-    req.socket.remoteAddress ||
-    "Unknown"
-  )
-    .split(",")[0]
-    .trim()
-    .replace("::ffff:", "");
-
   const referer = req.headers["referer"] || "Direct";
-  const deviceInfo = parseUserAgent(userAgent);
   const openInfo = detectOpenType(userAgent, req.headers);
 
   try {
@@ -267,35 +199,17 @@ app.get("/track/:id", async (req, res) => {
       if (email) {
         const now = new Date().toISOString();
         const inGracePeriod = isWithinGracePeriod(email, now);
+        const isSelfView = isNearSelfViewReport(email, now);
 
-        const isSelfView = email.senderIp && ip === email.senderIp;
-
-        const isGmailOpen =
-          openInfo.type === "gmail-proxy" || openInfo.type === "yahoo-proxy";
-
-        const shouldCount = isGmailOpen && !inGracePeriod && !isSelfView;
+        const shouldCount = openInfo.isLikelyReal && !inGracePeriod && !isSelfView;
 
         if (shouldCount) {
           const openEvent = {
             timestamp: now,
             userAgent,
-            ip,
             referer,
             openType: openInfo.type,
             isReal: openInfo.isLikelyReal,
-            isSelfView: isSelfView,
-            inGracePeriod: inGracePeriod,
-            deviceInfo: {
-              os: deviceInfo.os,
-              browser: deviceInfo.browser,
-              device: deviceInfo.device,
-            },
-            headers: {
-              via: req.headers["via"] || null,
-              accept: req.headers["accept"] || null,
-              acceptLanguage: req.headers["accept-language"] || null,
-              acceptEncoding: req.headers["accept-encoding"] || null,
-            },
           };
 
           email.opens.push(openEvent);
@@ -341,26 +255,11 @@ app.post("/api/emails", validateApiKey, async (req, res) => {
       return res.status(400).json({ error: "Subject is required" });
     }
 
-    let user = await User.findOne({ apiKey: req.apiKey });
+    const user = await User.findOne({ apiKey: req.apiKey });
 
     if (!user) {
-      user = new User({
-        apiKey: req.apiKey,
-        createdAt: new Date().toISOString(),
-        emails: [],
-      });
+      return res.status(404).json({ error: "User not found" });
     }
-
-    const senderIp = (
-      req.headers["x-forwarded-for"] ||
-      req.headers["x-real-ip"] ||
-      req.connection.remoteAddress ||
-      req.socket.remoteAddress ||
-      "Unknown"
-    )
-      .split(",")[0]
-      .trim()
-      .replace("::ffff:", "");
 
     const trackingId = uuidv4();
     const trackingUrl = `${req.protocol}://${req.get(
@@ -373,12 +272,12 @@ app.post("/api/emails", validateApiKey, async (req, res) => {
       trackingUrl,
       subject,
       recipient: recipient || "Unknown",
-      senderIp: senderIp,
       createdAt: new Date().toISOString(),
       sentAt: null,
       opens: [],
       openCount: 0,
       lastOpened: null,
+      selfViewReports: [],
     };
 
     user.emails.unshift(newEmail);
@@ -414,6 +313,65 @@ app.post("/api/emails/:id/mark-sent", validateApiKey, async (req, res) => {
     res.status(500).json({ error: "Failed to mark email as sent" });
   }
 });
+
+app.post(
+  "/api/emails/:id/report-self-view",
+  validateApiKey,
+  async (req, res) => {
+    try {
+      const user = await User.findOne({ apiKey: req.apiKey });
+
+      if (!user) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+
+      const email = user.emails.find((e) => e.id === req.params.id);
+
+      if (!email) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+
+      const now = new Date().toISOString();
+
+      if (!email.selfViewReports) {
+        email.selfViewReports = [];
+      }
+      email.selfViewReports.push(now);
+
+      const nowMs = new Date(now).getTime();
+      const windowMs = SELF_VIEW_WINDOW_SECONDS * 1000;
+      const originalLength = email.opens.length;
+
+      email.opens = email.opens.filter((open) => {
+        const openTime = new Date(open.timestamp).getTime();
+        return Math.abs(openTime - nowMs) > windowMs;
+      });
+
+      const removed = originalLength - email.opens.length;
+
+      email.openCount = email.opens.length;
+      email.lastOpened =
+        email.opens.length > 0
+          ? email.opens[email.opens.length - 1].timestamp
+          : null;
+
+      await user.save();
+
+      console.log(
+        `🔕 Self-view reported for "${email.subject}" — removed ${removed} retroactive open(s)`
+      );
+
+      res.json({
+        message: "Self-view reported",
+        reportedAt: now,
+        removedOpens: removed,
+      });
+    } catch (error) {
+      console.error("Error reporting self-view:", error);
+      res.status(500).json({ error: "Failed to report self-view" });
+    }
+  }
+);
 
 app.get("/api/emails", validateApiKey, async (req, res) => {
   try {
