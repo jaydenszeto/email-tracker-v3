@@ -16,12 +16,6 @@ Automatically identifies and filters out automated fetches from:
 - Search engine crawlers
 - Preview and pre-render requests
 
-**Grace Period Protection**
-Opens detected within the first 10 seconds after sending are ignored. This prevents your own preview clicks or immediate test opens from inflating your statistics.
-
-**Self-View Filtering**
-The system tracks the sender's IP address and automatically excludes opens from the same IP, ensuring you don't count your own views of sent emails.
-
 **Real-Time Dashboard**
 View all tracked emails in a clean, auto-refreshing dashboard that displays:
 
@@ -30,6 +24,8 @@ View all tracked emails in a clean, auto-refreshing dashboard that displays:
 - Last opened timestamp
 - Detailed open events with device information
 - IP addresses and user agent details
+
+<img width="1512" height="844" alt="image" src="https://github.com/user-attachments/assets/97b50a87-f90c-49c1-8490-a1c9209e65e3" />
 
 **Chrome Extension Integration**
 The optional Chrome extension automatically adds tracking pixels to your Gmail compose window. Simply focus the message body and the extension handles the rest, adding an invisible 1x1 pixel that reports when the recipient opens the email.
@@ -41,15 +37,9 @@ Secure access to your tracking data through unique API keys. Generate keys direc
 
 The Chrome extension provides seamless integration with Gmail to automatically track your outgoing emails:
 
-1. **Automatic Detection**: The extension monitors your Gmail interface and detects when you open a compose window.
+**Inbox Indicators**: The extension also adds visual indicators directly in your Gmail inbox, showing checkmarks next to sent emails that have been tracked. Green checkmarks indicate opened emails with open counts, while gray checkmarks show tracked emails that haven't been opened yet.
 
-2. **Pixel Injection**: When you click into the message body and add a recipient, the extension automatically creates a tracking pixel and inserts it into your email as an invisible 1x1 image.
-
-3. **Server Communication**: The extension communicates with your email tracker server to create a unique tracking URL for each email, storing the subject line and recipient information.
-
-4. **Send Detection**: When you click send, the extension marks the email as sent on the server, which starts the grace period timer to filter out immediate opens.
-
-5. **Inbox Indicators**: The extension also adds visual indicators directly in your Gmail inbox, showing checkmarks next to sent emails that have been tracked. Green checkmarks indicate opened emails with open counts, while gray checkmarks show tracked emails that haven't been opened yet.
+<img width="1057" height="41" alt="image" src="https://github.com/user-attachments/assets/99031694-6fd5-49c2-8902-0d18767f922c" />
 
 All of this happens automatically in the background. You can enable or disable auto-tracking in the extension settings at any time.
 
