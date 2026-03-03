@@ -608,13 +608,17 @@
 
             let opensDetailsHtml = '';
             if (opens.length > 0) {
+                const emailId = email.id;
+                const initialLimit = 5;
                 opensDetailsHtml = '<div class="mt-5"><div class="text-xs text-white text-opacity-60 mb-3 font-medium" style="letter-spacing: 0.05rem;">OPENS:</div>';
-                opens.slice(0, 10).forEach(open => {
+
+                opens.forEach((open, index) => {
                     const timestamp = formatTimestamp(open.timestamp);
                     const typeBadge = getOpenTypeBadge(open.openType);
+                    const hidden = index >= initialLimit ? ' style="display:none"' : '';
 
                     opensDetailsHtml += `
-                        <div class="open-detail">
+                        <div class="open-detail open-item-${emailId}"${hidden}>
                             <div>
                                 ${typeBadge}
                                 <span class="text-white text-opacity-70">${timestamp}</span>
@@ -622,8 +626,13 @@
                         </div>
                     `;
                 });
-                if (opens.length > 10) {
-                    opensDetailsHtml += `<div class="text-xs text-white text-opacity-40 mt-3">+ ${opens.length - 10} more opens</div>`;
+
+                if (opens.length > initialLimit) {
+                    opensDetailsHtml += `
+                        <button class="copy-button mt-3 text-xs" id="toggle-opens-${emailId}" onclick="toggleAllOpens('${emailId}', ${opens.length}, ${initialLimit})">
+                            show all ${opens.length} opens
+                        </button>
+                    `;
                 }
                 opensDetailsHtml += '</div>';
             }
@@ -719,6 +728,26 @@
             navigator.clipboard.writeText(text).then(() => {
                 alert(message);
             });
+        }
+
+        function toggleAllOpens(emailId, total, initialLimit) {
+            const items = document.querySelectorAll(`.open-item-${emailId}`);
+            const btn = document.getElementById(`toggle-opens-${emailId}`);
+            const isExpanded = btn.dataset.expanded === 'true';
+
+            items.forEach((item, index) => {
+                if (index >= initialLimit) {
+                    item.style.display = isExpanded ? 'none' : '';
+                }
+            });
+
+            if (isExpanded) {
+                btn.textContent = `show all ${total} opens`;
+                btn.dataset.expanded = 'false';
+            } else {
+                btn.textContent = `show less`;
+                btn.dataset.expanded = 'true';
+            }
         }
 
         function copyHtmlSnippet(url) {

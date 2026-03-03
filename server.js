@@ -9,8 +9,9 @@ const PORT = process.env.PORT || 3000;
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/email-tracker";
 
-const GRACE_PERIOD_SECONDS = 10;
+const GRACE_PERIOD_SECONDS = 30;
 const SELF_VIEW_WINDOW_SECONDS = 5;
+const DEDUP_WINDOW_SECONDS = 60;
 
 app.use(cors());
 app.use(express.json());
@@ -123,15 +124,33 @@ function detectOpenType(userAgent, headers) {
 }
 
 function isWithinGracePeriod(email, openTimestamp) {
-  const referenceTime = email.sentAt || email.createdAt;
-  if (!referenceTime) {
-    return false;
+  // If the email hasn't been sent yet, ALL opens are in the grace period
+  // (these are just the email client/composer loading the pixel)
+  if (!email.sentAt) {
+    return true;
   }
 
-  const sentTime = new Date(referenceTime).getTime();
+  const sentTime = new Date(email.sentAt).getTime();
   const openTime = new Date(openTimestamp).getTime();
   const diffSeconds = (openTime - sentTime) / 1000;
   return diffSeconds < GRACE_PERIOD_SECONDS;
+}
+
+function isDuplicateOpen(email, openType, timestamp) {
+  if (!email.opens || email.opens.length === 0) {
+    return false;
+  }
+
+  const openTime = new Date(timestamp).getTime();
+  const windowMs = DEDUP_WINDOW_SECONDS * 1000;
+
+  return email.opens.some((existing) => {
+    const existingTime = new Date(existing.timestamp).getTime();
+    return (
+      existing.openType === openType &&
+      Math.abs(openTime - existingTime) < windowMs
+    );
+  });
 }
 
 function isNearSelfViewReport(email, timestamp) {
@@ -200,8 +219,10 @@ app.get("/track/:id", async (req, res) => {
         const now = new Date().toISOString();
         const inGracePeriod = isWithinGracePeriod(email, now);
         const isSelfView = isNearSelfViewReport(email, now);
+        const isDupe = isDuplicateOpen(email, openInfo.type, now);
 
-        const shouldCount = openInfo.isLikelyReal && !inGracePeriod && !isSelfView;
+        const shouldCount =
+          openInfo.isLikelyReal && !inGracePeriod && !isSelfView && !isDupe;
 
         if (shouldCount) {
           const openEvent = {
@@ -223,7 +244,7 @@ app.get("/track/:id", async (req, res) => {
           );
         } else {
           console.log(
-            `⏭️ Open ignored for email "${email.subject}" - Type: ${openInfo.type}, Grace: ${inGracePeriod}, Self: ${isSelfView}`
+            `⏭️ Open ignored for email "${email.subject}" - Type: ${openInfo.type}, Grace: ${inGracePeriod}, Self: ${isSelfView}, Dupe: ${isDupe}`
           );
         }
       }
@@ -304,10 +325,38 @@ app.post("/api/emails/:id/mark-sent", validateApiKey, async (req, res) => {
       return res.status(404).json({ error: "Email not found" });
     }
 
-    email.sentAt = new Date().toISOString();
+    const now = new Date().toISOString();
+    email.sentAt = now;
+
+    // Retroactively remove any opens that occurred before the email was sent
+    // (these are from the composer/preview loading the tracking pixel)
+    const sentMs = new Date(now).getTime();
+    const graceMs = GRACE_PERIOD_SECONDS * 1000;
+    const originalCount = email.opens.length;
+
+    email.opens = email.opens.filter((open) => {
+      const openTime = new Date(open.timestamp).getTime();
+      return openTime - sentMs >= graceMs;
+    });
+
+    const removed = originalCount - email.opens.length;
+    email.openCount = email.opens.length;
+    email.lastOpened =
+      email.opens.length > 0
+        ? email.opens[email.opens.length - 1].timestamp
+        : null;
+
     await user.save();
 
-    res.json({ message: "Email marked as sent", sentAt: email.sentAt });
+    console.log(
+      `📤 Email "${email.subject}" marked as sent — removed ${removed} pre-send open(s)`
+    );
+
+    res.json({
+      message: "Email marked as sent",
+      sentAt: email.sentAt,
+      removedPreSendOpens: removed,
+    });
   } catch (error) {
     console.error("Error marking email as sent:", error);
     res.status(500).json({ error: "Failed to mark email as sent" });
