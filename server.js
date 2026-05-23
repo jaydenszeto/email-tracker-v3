@@ -1,7 +1,6 @@
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
-const { v4: uuidv4 } = require("uuid");
 const crypto = require("crypto");
 
 const app = express();
@@ -9,10 +8,31 @@ const PORT = process.env.PORT || 3000;
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://localhost:27017/email-tracker";
 
-const GRACE_PERIOD_SECONDS = 30;
-const SELF_VIEW_WINDOW_SECONDS = 5;
-const DEDUP_WINDOW_SECONDS = 60;
+const GRACE_PERIOD_SECONDS = parsePositiveInt(
+  process.env.GRACE_PERIOD_SECONDS,
+  10
+);
+const SELF_OPEN_SUPPRESSION_SECONDS = parsePositiveInt(
+  process.env.SELF_OPEN_SUPPRESSION_SECONDS,
+  45
+);
+const SELF_VIEW_WINDOW_SECONDS = parsePositiveInt(
+  process.env.SELF_VIEW_WINDOW_SECONDS,
+  5
+);
+const DEDUP_WINDOW_SECONDS = parsePositiveInt(
+  process.env.DEDUP_WINDOW_SECONDS,
+  60
+);
+const PUBLIC_BASE_URL = (
+  process.env.PUBLIC_BASE_URL ||
+  process.env.RENDER_EXTERNAL_URL ||
+  ""
+).replace(/\/+$/, "");
+const MANUAL_SOURCE = "manual";
+const EXTENSION_SOURCE = "gmail-extension";
 
+app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
@@ -23,20 +43,40 @@ const emailSchema = new mongoose.Schema({
   trackingUrl: String,
   subject: String,
   recipient: String,
+  senderIp: String,
+  source: { type: String, default: MANUAL_SOURCE },
   createdAt: String,
   sentAt: String,
+  selfOpenSuppressedUntil: String,
+  selfViewReports: [String],
   opens: [
     {
       timestamp: String,
       userAgent: String,
+      ip: String,
       referer: String,
       openType: String,
       isReal: Boolean,
+      isSelfView: Boolean,
+      inGracePeriod: Boolean,
+      isDuplicate: Boolean,
+      deviceInfo: {
+        os: String,
+        browser: String,
+        device: String,
+      },
+      headers: {
+        via: String,
+        accept: String,
+        acceptLanguage: String,
+        acceptEncoding: String,
+      },
     },
   ],
   openCount: Number,
   lastOpened: String,
-  selfViewReports: [String],
+  ignoredOpenCount: { type: Number, default: 0 },
+  lastIgnoredOpen: String,
 });
 
 const userSchema = new mongoose.Schema({
@@ -59,6 +99,132 @@ async function connectDB() {
 
 function generateApiKey() {
   return crypto.randomBytes(32).toString("hex");
+}
+
+function generateId() {
+  return crypto.randomUUID();
+}
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function normalizeIp(value) {
+  if (!value) {
+    return "Unknown";
+  }
+
+  const ip = String(value).split(",")[0].trim().replace(/^::ffff:/, "");
+  return ip || "Unknown";
+}
+
+function getClientIp(req) {
+  return normalizeIp(
+    req.headers["x-forwarded-for"] ||
+      req.headers["x-real-ip"] ||
+      req.connection.remoteAddress ||
+      req.socket.remoteAddress ||
+      "Unknown"
+  );
+}
+
+function getPublicBaseUrl(req) {
+  if (PUBLIC_BASE_URL) {
+    return PUBLIC_BASE_URL;
+  }
+
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const protocol = forwardedProto
+    ? String(forwardedProto).split(",")[0].trim()
+    : req.protocol;
+
+  return `${protocol}://${req.get("host")}`.replace(/\/+$/, "");
+}
+
+function readStringField(value, options = {}) {
+  const { required = false, defaultValue = "", maxLength = 500 } = options;
+
+  if (value === undefined || value === null || value === "") {
+    if (required) {
+      return { error: "Required field is missing" };
+    }
+    return { value: defaultValue };
+  }
+
+  if (typeof value !== "string") {
+    return { error: "Field must be a string" };
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed && required) {
+    return { error: "Required field is missing" };
+  }
+
+  return { value: trimmed.slice(0, maxLength) || defaultValue };
+}
+
+function parseUserAgent(userAgent) {
+  if (!userAgent) {
+    return { os: "Unknown", browser: "Unknown", device: "Unknown" };
+  }
+
+  const ua = userAgent.toLowerCase();
+
+  let os = "Unknown";
+  if (ua.includes("iphone")) os = "iOS (iPhone)";
+  else if (ua.includes("ipad")) os = "iOS (iPad)";
+  else if (ua.includes("android")) {
+    const match = ua.match(/android\s+([\d.]+)/);
+    os = match ? `Android ${match[1]}` : "Android";
+  } else if (ua.includes("mac os x") || ua.includes("macintosh")) {
+    const match = ua.match(/mac os x ([\d_]+)/);
+    if (match) {
+      const version = match[1].replace(/_/g, ".");
+      os = `macOS ${version}`;
+    } else {
+      os = "macOS";
+    }
+  } else if (ua.includes("windows nt 10.0")) os = "Windows 10/11";
+  else if (ua.includes("windows nt 6.3")) os = "Windows 8.1";
+  else if (ua.includes("windows nt 6.2")) os = "Windows 8";
+  else if (ua.includes("windows nt 6.1")) os = "Windows 7";
+  else if (ua.includes("windows")) os = "Windows";
+  else if (ua.includes("linux") && !ua.includes("android")) os = "Linux";
+  else if (ua.includes("cros")) os = "Chrome OS";
+
+  let browser = "Unknown";
+  if (ua.includes("edg/") || ua.includes("edge/")) {
+    browser = "Edge";
+  } else if (ua.includes("opr/") || ua.includes("opera")) {
+    browser = "Opera";
+  } else if (ua.includes("brave")) {
+    browser = "Brave";
+  } else if (ua.includes("chrome/") || ua.includes("crios/")) {
+    const match = ua.match(/chrome\/([\d.]+)/);
+    browser = match ? `Chrome ${match[1].split(".")[0]}` : "Chrome";
+  } else if (ua.includes("chromium")) {
+    browser = "Chromium";
+  } else if (ua.includes("firefox") || ua.includes("fxios")) {
+    const match = ua.match(/firefox\/([\d.]+)/);
+    browser = match ? `Firefox ${match[1].split(".")[0]}` : "Firefox";
+  } else if (ua.includes("safari/") && !ua.includes("chrome")) {
+    const match = ua.match(/version\/([\d.]+)/);
+    browser = match ? `Safari ${match[1].split(".")[0]}` : "Safari";
+  } else if (ua.includes("msie") || ua.includes("trident/")) {
+    browser = "Internet Explorer";
+  }
+
+  let device = "Desktop/Laptop";
+  if (ua.includes("mobile") || ua.includes("iphone") || ua.includes("ipod")) {
+    device = "Mobile";
+  } else if (ua.includes("tablet") || ua.includes("ipad")) {
+    device = "Tablet";
+  } else if (ua.includes("android") && !ua.includes("mobile")) {
+    device = "Tablet";
+  }
+
+  return { os, browser, device };
 }
 
 function detectOpenType(userAgent, headers) {
@@ -124,16 +290,57 @@ function detectOpenType(userAgent, headers) {
 }
 
 function isWithinGracePeriod(email, openTimestamp) {
-  // If the email hasn't been sent yet, ALL opens are in the grace period
-  // (these are just the email client/composer loading the pixel)
   if (!email.sentAt) {
     return true;
   }
 
-  const sentTime = new Date(email.sentAt).getTime();
-  const openTime = new Date(openTimestamp).getTime();
+  const sentTime = Date.parse(email.sentAt);
+  const openTime = Date.parse(openTimestamp);
+
+  if (!Number.isFinite(sentTime) || !Number.isFinite(openTime)) {
+    return true;
+  }
+
   const diffSeconds = (openTime - sentTime) / 1000;
   return diffSeconds < GRACE_PERIOD_SECONDS;
+}
+
+function isSupportedProxyOpen(openInfo) {
+  return ["gmail-proxy", "yahoo-proxy"].includes(openInfo.type);
+}
+
+function isSelfOpenSuppressed(email, openTimestamp) {
+  if (!email.selfOpenSuppressedUntil) {
+    return false;
+  }
+
+  const suppressedUntil = Date.parse(email.selfOpenSuppressedUntil);
+  const openTime = Date.parse(openTimestamp);
+
+  return (
+    Number.isFinite(suppressedUntil) &&
+    Number.isFinite(openTime) &&
+    openTime <= suppressedUntil
+  );
+}
+
+function isNearSelfViewReport(email, timestamp) {
+  if (!email.selfViewReports || email.selfViewReports.length === 0) {
+    return false;
+  }
+
+  const openTime = Date.parse(timestamp);
+  if (!Number.isFinite(openTime)) {
+    return false;
+  }
+
+  return email.selfViewReports.some((reportTs) => {
+    const reportTime = Date.parse(reportTs);
+    return (
+      Number.isFinite(reportTime) &&
+      Math.abs(openTime - reportTime) <= SELF_VIEW_WINDOW_SECONDS * 1000
+    );
+  });
 }
 
 function isDuplicateOpen(email, openType, timestamp) {
@@ -141,27 +348,93 @@ function isDuplicateOpen(email, openType, timestamp) {
     return false;
   }
 
-  const openTime = new Date(timestamp).getTime();
+  const openTime = Date.parse(timestamp);
+  if (!Number.isFinite(openTime)) {
+    return false;
+  }
+
   const windowMs = DEDUP_WINDOW_SECONDS * 1000;
 
   return email.opens.some((existing) => {
-    const existingTime = new Date(existing.timestamp).getTime();
+    const existingTime = Date.parse(existing.timestamp);
     return (
+      Number.isFinite(existingTime) &&
       existing.openType === openType &&
       Math.abs(openTime - existingTime) < windowMs
     );
   });
 }
 
-function isNearSelfViewReport(email, timestamp) {
-  if (!email.selfViewReports || email.selfViewReports.length === 0) {
-    return false;
-  }
-  const openTime = new Date(timestamp).getTime();
-  return email.selfViewReports.some((reportTs) => {
-    const reportTime = new Date(reportTs).getTime();
-    return Math.abs(openTime - reportTime) <= SELF_VIEW_WINDOW_SECONDS * 1000;
-  });
+function getOpenDecision(email, openInfo, ip, openTimestamp) {
+  const inGracePeriod = isWithinGracePeriod(email, openTimestamp);
+  const isSenderIp = Boolean(
+    email.senderIp && normalizeIp(ip) === normalizeIp(email.senderIp)
+  );
+  const isSupportedProxy = isSupportedProxyOpen(openInfo);
+  const isSelfSuppressed = isSelfOpenSuppressed(email, openTimestamp);
+  const isSelfReported = isNearSelfViewReport(email, openTimestamp);
+  const isDuplicate = isDuplicateOpen(email, openInfo.type, openTimestamp);
+
+  const reasons = [];
+  if (!isSupportedProxy) reasons.push("unsupported-open-type");
+  if (!openInfo.isLikelyReal) reasons.push("not-likely-real");
+  if (inGracePeriod) reasons.push("grace-period");
+  if (isSenderIp) reasons.push("sender-ip");
+  if (isSelfSuppressed) reasons.push("owner-suppression");
+  if (isSelfReported) reasons.push("owner-report");
+  if (isDuplicate) reasons.push("duplicate");
+
+  return {
+    shouldCount:
+      isSupportedProxy &&
+      openInfo.isLikelyReal &&
+      !inGracePeriod &&
+      !isSenderIp &&
+      !isSelfSuppressed &&
+      !isSelfReported &&
+      !isDuplicate,
+    inGracePeriod,
+    isSelfView: isSenderIp || isSelfSuppressed || isSelfReported,
+    isSelfSuppressed,
+    isSelfReported,
+    isSupportedProxy,
+    isDuplicate,
+    reasons,
+  };
+}
+
+function buildTrackedEmailRecord({
+  subject,
+  recipient,
+  senderIp,
+  baseUrl,
+  source = MANUAL_SOURCE,
+  deferCountingUntilSent = false,
+  now = new Date(),
+}) {
+  const createdAt = now.toISOString();
+  const trackingId = generateId();
+  const createdByExtension =
+    source === EXTENSION_SOURCE || deferCountingUntilSent === true;
+
+  return {
+    id: generateId(),
+    trackingId,
+    trackingUrl: `${baseUrl}/track/${trackingId}`,
+    subject,
+    recipient: recipient || "Unknown",
+    senderIp: senderIp || "Unknown",
+    source: createdByExtension ? EXTENSION_SOURCE : MANUAL_SOURCE,
+    createdAt,
+    sentAt: createdByExtension ? null : createdAt,
+    selfOpenSuppressedUntil: null,
+    selfViewReports: [],
+    opens: [],
+    openCount: 0,
+    lastOpened: null,
+    ignoredOpenCount: 0,
+    lastIgnoredOpen: null,
+  };
 }
 
 async function validateApiKey(req, res, next) {
@@ -173,15 +446,39 @@ async function validateApiKey(req, res, next) {
 
   try {
     const user = await User.findOne({ apiKey });
+
     if (!user) {
       return res.status(401).json({ error: "Invalid API key" });
     }
+
     req.apiKey = apiKey;
+    req.user = user;
     next();
   } catch (error) {
     console.error("Error validating API key:", error);
-    res.status(500).json({ error: "Authentication error" });
+    res.status(500).json({ error: "Failed to validate API key" });
   }
+}
+
+function removeNearbyOpenEvents(email, timestamp, windowSeconds) {
+  const targetMs = Date.parse(timestamp);
+  if (!Number.isFinite(targetMs) || !email.opens) {
+    return 0;
+  }
+
+  const windowMs = windowSeconds * 1000;
+  const originalLength = email.opens.length;
+
+  email.opens = email.opens.filter((open) => {
+    const openTime = Date.parse(open.timestamp);
+    return !Number.isFinite(openTime) || Math.abs(openTime - targetMs) > windowMs;
+  });
+
+  email.openCount = email.opens.length;
+  email.lastOpened =
+    email.opens.length > 0 ? email.opens[email.opens.length - 1].timestamp : null;
+
+  return originalLength - email.opens.length;
 }
 
 app.post("/api/auth/generate-key", async (req, res) => {
@@ -206,7 +503,9 @@ app.post("/api/auth/generate-key", async (req, res) => {
 app.get("/track/:id", async (req, res) => {
   const trackId = req.params.id;
   const userAgent = req.headers["user-agent"] || "Unknown";
+  const ip = getClientIp(req);
   const referer = req.headers["referer"] || "Direct";
+  const deviceInfo = parseUserAgent(userAgent);
   const openInfo = detectOpenType(userAgent, req.headers);
 
   try {
@@ -217,34 +516,57 @@ app.get("/track/:id", async (req, res) => {
 
       if (email) {
         const now = new Date().toISOString();
-        const inGracePeriod = isWithinGracePeriod(email, now);
-        const isSelfView = isNearSelfViewReport(email, now);
-        const isDupe = isDuplicateOpen(email, openInfo.type, now);
+        const decision = getOpenDecision(email, openInfo, ip, now);
 
-        const shouldCount =
-          openInfo.isLikelyReal && !inGracePeriod && !isSelfView && !isDupe;
-
-        if (shouldCount) {
+        if (decision.shouldCount) {
           const openEvent = {
             timestamp: now,
             userAgent,
+            ip,
             referer,
             openType: openInfo.type,
             isReal: openInfo.isLikelyReal,
+            isSelfView: decision.isSelfView,
+            inGracePeriod: decision.inGracePeriod,
+            isDuplicate: decision.isDuplicate,
+            deviceInfo: {
+              os: deviceInfo.os,
+              browser: deviceInfo.browser,
+              device: deviceInfo.device,
+            },
+            headers: {
+              via: req.headers["via"] || null,
+              accept: req.headers["accept"] || null,
+              acceptLanguage: req.headers["accept-language"] || null,
+              acceptEncoding: req.headers["accept-encoding"] || null,
+            },
           };
 
-          email.opens.push(openEvent);
-          email.openCount = email.opens.length;
-          email.lastOpened = openEvent.timestamp;
-
-          await user.save();
+          await User.updateOne(
+            { _id: user._id, "emails.trackingId": trackId },
+            {
+              $push: { "emails.$.opens": openEvent },
+              $inc: { "emails.$.openCount": 1 },
+              $set: { "emails.$.lastOpened": openEvent.timestamp },
+            }
+          );
 
           console.log(
             `✅ Open counted for email "${email.subject}" from ${openInfo.type}`
           );
         } else {
+          await User.updateOne(
+            { _id: user._id, "emails.trackingId": trackId },
+            {
+              $inc: { "emails.$.ignoredOpenCount": 1 },
+              $set: { "emails.$.lastIgnoredOpen": now },
+            }
+          );
+
           console.log(
-            `⏭️ Open ignored for email "${email.subject}" - Type: ${openInfo.type}, Grace: ${inGracePeriod}, Self: ${isSelfView}, Dupe: ${isDupe}`
+            `⏭️ Open ignored for email "${email.subject}" - Type: ${
+              openInfo.type
+            }, Reasons: ${decision.reasons.join(", ")}`
           );
         }
       }
@@ -270,37 +592,33 @@ app.get("/track/:id", async (req, res) => {
 
 app.post("/api/emails", validateApiKey, async (req, res) => {
   try {
-    const { subject, recipient } = req.body;
+    const body = req.body || {};
+    const subjectField = readStringField(body.subject, {
+      required: true,
+      maxLength: 300,
+    });
+    const recipientField = readStringField(body.recipient, {
+      defaultValue: "Unknown",
+      maxLength: 320,
+    });
 
-    if (!subject) {
+    if (subjectField.error) {
       return res.status(400).json({ error: "Subject is required" });
     }
-
-    const user = await User.findOne({ apiKey: req.apiKey });
-
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
+    if (recipientField.error) {
+      return res.status(400).json({ error: "Recipient must be a string" });
     }
 
-    const trackingId = uuidv4();
-    const trackingUrl = `${req.protocol}://${req.get(
-      "host"
-    )}/track/${trackingId}`;
+    const newEmail = buildTrackedEmailRecord({
+      subject: subjectField.value,
+      recipient: recipientField.value,
+      senderIp: getClientIp(req),
+      baseUrl: getPublicBaseUrl(req),
+      source: body.source,
+      deferCountingUntilSent: body.deferCountingUntilSent === true,
+    });
 
-    const newEmail = {
-      id: uuidv4(),
-      trackingId,
-      trackingUrl,
-      subject,
-      recipient: recipient || "Unknown",
-      createdAt: new Date().toISOString(),
-      sentAt: null,
-      opens: [],
-      openCount: 0,
-      lastOpened: null,
-      selfViewReports: [],
-    };
-
+    const user = req.user;
     user.emails.unshift(newEmail);
     await user.save();
 
@@ -313,40 +631,20 @@ app.post("/api/emails", validateApiKey, async (req, res) => {
 
 app.post("/api/emails/:id/mark-sent", validateApiKey, async (req, res) => {
   try {
-    const user = await User.findOne({ apiKey: req.apiKey });
-
-    if (!user) {
-      return res.status(404).json({ error: "Email not found" });
-    }
-
+    const user = req.user;
     const email = user.emails.find((e) => e.id === req.params.id);
 
     if (!email) {
       return res.status(404).json({ error: "Email not found" });
     }
 
-    const now = new Date().toISOString();
-    email.sentAt = now;
-
-    // Retroactively remove any opens that occurred before the email was sent
-    // (these are from the composer/preview loading the tracking pixel)
-    const sentMs = new Date(now).getTime();
-    const graceMs = GRACE_PERIOD_SECONDS * 1000;
-    const originalCount = email.opens.length;
-
-    email.opens = email.opens.filter((open) => {
-      const openTime = new Date(open.timestamp).getTime();
-      return openTime - sentMs >= graceMs;
-    });
-
-    const removed = originalCount - email.opens.length;
-    email.openCount = email.opens.length;
-    email.lastOpened =
-      email.opens.length > 0
-        ? email.opens[email.opens.length - 1].timestamp
-        : null;
-
-    await user.save();
+    let removed = 0;
+    if (!email.sentAt) {
+      const now = new Date().toISOString();
+      email.sentAt = now;
+      removed = removeNearbyOpenEvents(email, now, GRACE_PERIOD_SECONDS);
+      await user.save();
+    }
 
     console.log(
       `📤 Email "${email.subject}" marked as sent — removed ${removed} pre-send open(s)`
@@ -364,16 +662,50 @@ app.post("/api/emails/:id/mark-sent", validateApiKey, async (req, res) => {
 });
 
 app.post(
+  "/api/emails/:id/suppress-self-open",
+  validateApiKey,
+  async (req, res) => {
+    try {
+      const user = req.user;
+      const email = user.emails.find((e) => e.id === req.params.id);
+
+      if (!email) {
+        return res.status(404).json({ error: "Email not found" });
+      }
+
+      const requestedSeconds = parsePositiveInt(
+        (req.body || {}).seconds,
+        SELF_OPEN_SUPPRESSION_SECONDS
+      );
+      const seconds = Math.min(requestedSeconds, 300);
+      const suppressUntil = new Date(Date.now() + seconds * 1000);
+      const existingUntil = Date.parse(email.selfOpenSuppressedUntil);
+
+      if (
+        !Number.isFinite(existingUntil) ||
+        suppressUntil.getTime() > existingUntil
+      ) {
+        email.selfOpenSuppressedUntil = suppressUntil.toISOString();
+        await user.save();
+      }
+
+      res.json({
+        message: "Self-open suppression armed",
+        suppressUntil: email.selfOpenSuppressedUntil,
+      });
+    } catch (error) {
+      console.error("Error suppressing self-open:", error);
+      res.status(500).json({ error: "Failed to suppress self-open" });
+    }
+  }
+);
+
+app.post(
   "/api/emails/:id/report-self-view",
   validateApiKey,
   async (req, res) => {
     try {
-      const user = await User.findOne({ apiKey: req.apiKey });
-
-      if (!user) {
-        return res.status(404).json({ error: "Email not found" });
-      }
-
+      const user = req.user;
       const email = user.emails.find((e) => e.id === req.params.id);
 
       if (!email) {
@@ -381,29 +713,17 @@ app.post(
       }
 
       const now = new Date().toISOString();
+      const suppressUntil = new Date(
+        Date.now() + SELF_OPEN_SUPPRESSION_SECONDS * 1000
+      );
 
       if (!email.selfViewReports) {
         email.selfViewReports = [];
       }
       email.selfViewReports.push(now);
+      email.selfOpenSuppressedUntil = suppressUntil.toISOString();
 
-      const nowMs = new Date(now).getTime();
-      const windowMs = SELF_VIEW_WINDOW_SECONDS * 1000;
-      const originalLength = email.opens.length;
-
-      email.opens = email.opens.filter((open) => {
-        const openTime = new Date(open.timestamp).getTime();
-        return Math.abs(openTime - nowMs) > windowMs;
-      });
-
-      const removed = originalLength - email.opens.length;
-
-      email.openCount = email.opens.length;
-      email.lastOpened =
-        email.opens.length > 0
-          ? email.opens[email.opens.length - 1].timestamp
-          : null;
-
+      const removed = removeNearbyOpenEvents(email, now, SELF_VIEW_WINDOW_SECONDS);
       await user.save();
 
       console.log(
@@ -413,6 +733,7 @@ app.post(
       res.json({
         message: "Self-view reported",
         reportedAt: now,
+        suppressUntil: email.selfOpenSuppressedUntil,
         removedOpens: removed,
       });
     } catch (error) {
@@ -424,13 +745,9 @@ app.post(
 
 app.get("/api/emails", validateApiKey, async (req, res) => {
   try {
-    const user = await User.findOne({ apiKey: req.apiKey });
+    const user = req.user;
 
-    if (!user) {
-      return res.json([]);
-    }
-
-    const sortedEmails = user.emails.sort(
+    const sortedEmails = [...user.emails].sort(
       (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
     );
     res.json(sortedEmails);
@@ -442,12 +759,7 @@ app.get("/api/emails", validateApiKey, async (req, res) => {
 
 app.get("/api/emails/:id", validateApiKey, async (req, res) => {
   try {
-    const user = await User.findOne({ apiKey: req.apiKey });
-
-    if (!user) {
-      return res.status(404).json({ error: "Email not found" });
-    }
-
+    const user = req.user;
     const email = user.emails.find((e) => e.id === req.params.id);
 
     if (!email) {
@@ -463,12 +775,7 @@ app.get("/api/emails/:id", validateApiKey, async (req, res) => {
 
 app.delete("/api/emails/:id", validateApiKey, async (req, res) => {
   try {
-    const user = await User.findOne({ apiKey: req.apiKey });
-
-    if (!user) {
-      return res.status(404).json({ error: "Email not found" });
-    }
-
+    const user = req.user;
     const emailIndex = user.emails.findIndex((e) => e.id === req.params.id);
 
     if (emailIndex === -1) {
@@ -492,4 +799,22 @@ async function startServer() {
   });
 }
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = {
+  app,
+  buildTrackedEmailRecord,
+  detectOpenType,
+  getOpenDecision,
+  getPublicBaseUrl,
+  isDuplicateOpen,
+  isNearSelfViewReport,
+  isSelfOpenSuppressed,
+  isSupportedProxyOpen,
+  isWithinGracePeriod,
+  normalizeIp,
+  parseUserAgent,
+  readStringField,
+};

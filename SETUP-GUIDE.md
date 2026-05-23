@@ -2,11 +2,12 @@
 
 ## What You Now Have
 
-✅ **Enhanced Server** - Tracks IP, device OS, browser, and device type  
-✅ **Beautiful Dashboard** - Shows all tracking data with clean timestamps  
-✅ **Chrome Extension** - Automatically adds tracking pixels to Gmail  
-✅ **60-Second Grace Period** - Filters out compose-time opens  
-✅ **Bot Detection** - Distinguishes real opens from automated ones
+- ✅ **Enhanced Server** - Tracks IP, device OS, browser, and device type
+- ✅ **Beautiful Dashboard** - Shows all tracking data with clean timestamps
+- ✅ **Chrome Extension** - Automatically adds tracking pixels to Gmail
+- ✅ **10-Second Grace Period** - Filters out compose-time opens
+- ✅ **Self-Open Suppression** - Ignores owner-side Gmail opens detected by the extension
+- ✅ **Bot Detection** - Distinguishes real opens from automated ones
 
 ---
 
@@ -55,8 +56,8 @@ Just create 3 simple colored squares:
 3. You'll see a **"📊 Tracking enabled"** indicator
 4. Send the email
 5. Open the **dashboard** at http://localhost:3000
-6. Wait 60 seconds, then open your sent email
-7. **Refresh the dashboard** - you'll see the open with full details!
+6. Open the email from a separate recipient account after the 10-second grace period
+7. **Refresh the dashboard** - you'll see the recipient open with full details!
 
 ---
 
@@ -123,15 +124,15 @@ Done! Your extension now uses the production server.
 
 ## Features Breakdown
 
-### 🎯 60-Second Grace Period
+### 🎯 10-Second Grace Period
 - Prevents counting opens while you're composing
 - Filters out Gmail's preview/image loading
-- Only real recipient opens count
+- Works with self-open suppression so your own Gmail views do not become reads
 
 ### 🤖 Smart Bot Detection
 - **Gmail Proxy** = Real open (Gmail loads images only when user opens)
-- **Direct Browser** = Real open
-- **Mobile Client** = Real open
+- **Yahoo Proxy** = Real open
+- **Direct Browser/Mobile Client** = Ignored unless routed through a supported mail proxy
 - **Crawlers/Bots** = Filtered out
 
 ### 📊 Rich Analytics
@@ -165,8 +166,8 @@ Done! Your extension now uses the production server.
 - Make sure server is running
 
 **Not seeing opens?**
-- Wait 60 seconds after sending (grace period)
-- Check that recipient actually opened the email
+- Wait 10 seconds after sending (grace period)
+- Check that the recipient opened the email in Gmail or Yahoo with images enabled
 - Refresh the dashboard
 
 **Icons not showing?**

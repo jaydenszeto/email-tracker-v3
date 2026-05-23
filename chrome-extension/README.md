@@ -25,9 +25,11 @@ This Chrome extension automatically adds tracking pixels to all your Gmail email
 1. **Automatic Tracking**: When you compose an email in Gmail, the extension automatically:
    - Creates a tracking link on your server
    - Injects an invisible 1x1 pixel at the end of your email
+   - Marks the tracking link active after Gmail send is detected
+   - Arms a short owner-open suppression window when you open the tracked thread yourself
    - Shows a "📊 Tracking enabled" indicator
 
-2. **60-Second Grace Period**: Opens within 60 seconds of creating the tracking link are ignored (this filters out Gmail's preview/loading)
+2. **10-Second Grace Period**: Opens within 10 seconds of send activation are ignored (this filters out Gmail's preview/loading)
 
 3. **Rich Tracking Data**: Each open captures:
    - IP address
@@ -60,7 +62,8 @@ Click the extension icon to:
 
 - ✅ Automatic pixel injection
 - ✅ Visual tracking indicator
-- ✅ 60-second grace period
+- ✅ 10-second grace period
+- ✅ Sender/self-open suppression
 - ✅ Rich device/browser detection
 - ✅ IP address tracking
 - ✅ Easy on/off toggle
@@ -77,7 +80,7 @@ You can create simple icons using:
 
 - **Tracking not working**: Check that the server URL is correct in settings
 - **Pixel not injecting**: Make sure auto-track is enabled
-- **Can't see opens**: Remember the 60-second grace period after sending
+- **Can't see opens**: Remember the 10-second grace period after sending and test with a separate recipient account
 
 ## Privacy & Ethics
 

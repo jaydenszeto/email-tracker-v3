@@ -429,7 +429,6 @@
                 </button>
             </div>
 
-
             <div class="glass-card">
                 <div class="p-8">
                     <div class="flex justify-between items-center mb-8">
@@ -451,7 +450,23 @@
     </div>
 
     <script>
-        let apiKey = localStorage.getItem('emailTrackerApiKey');
+        function getApiKeyFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const key = params.get('key');
+            if (key) {
+                params.delete('key');
+                const query = params.toString();
+                const cleanUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+                window.history.replaceState({}, document.title, cleanUrl);
+            }
+            return key;
+        }
+
+        const apiKeyFromUrl = getApiKeyFromUrl();
+        let apiKey = apiKeyFromUrl || localStorage.getItem('emailTrackerApiKey');
+        if (apiKeyFromUrl) {
+            localStorage.setItem('emailTrackerApiKey', apiKeyFromUrl);
+        }
         let countdownInterval;
         let countdownValue = 10;
 
@@ -474,6 +489,7 @@
             UI.authScreen.style.display = 'none';
             UI.mainApp.classList.add('active');
             loadEmails();
+            if (countdownInterval) clearInterval(countdownInterval);
             startCountdown();
         }
 
@@ -514,16 +530,42 @@
             }
         }
 
-        function authenticateWithKey() {
+        async function validateApiKey(key) {
+            const response = await fetch('/api/emails', {
+                headers: {
+                    'X-API-Key': key
+                }
+            });
+            return response.ok;
+        }
+
+        async function authenticateWithKey() {
             const key = UI.apiKeyInput.value.trim();
             if (!key) {
                 alert('Please enter an API key');
                 return;
             }
 
-            apiKey = key;
-            localStorage.setItem('emailTrackerApiKey', key);
-            showMainApp();
+            UI.authBtn.disabled = true;
+            UI.authBtn.textContent = 'checking...';
+
+            try {
+                const isValid = await validateApiKey(key);
+                if (!isValid) {
+                    alert('Invalid API key');
+                    return;
+                }
+
+                apiKey = key;
+                localStorage.setItem('emailTrackerApiKey', key);
+                showMainApp();
+            } catch (error) {
+                console.error(error);
+                alert('Failed to validate API key');
+            } finally {
+                UI.authBtn.disabled = false;
+                UI.authBtn.textContent = 'continue';
+            }
         }
 
         function escapeHtml(text) {
@@ -593,11 +635,12 @@
 
         function renderEmail(email) {
             const opens = email.opens || [];
-            const hasOpens = opens.length > 0;
+            const openCount = Number(email.openCount) || opens.length;
+            const hasOpens = openCount > 0;
 
             let statusHtml = '';
             if (hasOpens) {
-                statusHtml = `<span class="status-badge status-opened">opened ${opens.length}x</span>`;
+                statusHtml = `<span class="status-badge status-opened">opened ${openCount}x</span>`;
             } else {
                 statusHtml = `<span class="status-badge status-unopened">not opened</span>`;
             }
