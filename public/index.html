@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Never send the URL (which may carry the API key) to third-party CDN/font hosts. -->
+    <meta name="referrer" content="no-referrer">
     <title>email tracker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -451,12 +453,24 @@
 
     <script>
         function getApiKeyFromUrl() {
-            const params = new URLSearchParams(window.location.search);
-            const key = params.get('key');
+            // Preferred: key in the URL fragment (#key=...), which never reaches
+            // the server or third-party requests. Also accept the legacy ?key=
+            // query form for older bookmarks, and scrub whichever was used.
+            const hashParams = new URLSearchParams(
+                window.location.hash.replace(/^#/, '')
+            );
+            const queryParams = new URLSearchParams(window.location.search);
+            const key = hashParams.get('key') || queryParams.get('key');
+
             if (key) {
-                params.delete('key');
-                const query = params.toString();
-                const cleanUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+                hashParams.delete('key');
+                queryParams.delete('key');
+                const query = queryParams.toString();
+                const hash = hashParams.toString();
+                const cleanUrl =
+                    `${window.location.pathname}` +
+                    `${query ? `?${query}` : ''}` +
+                    `${hash ? `#${hash}` : ''}`;
                 window.history.replaceState({}, document.title, cleanUrl);
             }
             return key;
@@ -586,6 +600,23 @@
             return badges[openType] || badges['unknown'];
         }
 
+        function humanizeIgnoreReason(reason) {
+            const map = {
+                'unsupported-open-type': 'not a Gmail/Yahoo proxy open',
+                'not-likely-real': 'looked automated',
+                'grace-period': 'just after sending',
+                'sender-ip': 'opened from your IP',
+                'owner-suppression': 'your own view',
+                'owner-report': 'your own view',
+                'duplicate': 'duplicate of a counted open'
+            };
+            return String(reason || '')
+                .split(',')
+                .map((r) => map[r.trim()] || r.trim())
+                .filter(Boolean)
+                .join(', ');
+        }
+
         async function apiRequest(url, options = {}) {
             const headers = {
                 'Content-Type': 'application/json',
@@ -680,6 +711,24 @@
                 opensDetailsHtml += '</div>';
             }
 
+            const ignoredCount = Number(email.ignoredOpenCount) || 0;
+            let filteredHtml = '';
+            if (ignoredCount > 0) {
+                const reasonText = email.lastIgnoredReason
+                    ? ` — ${escapeHtml(humanizeIgnoreReason(email.lastIgnoredReason))}`
+                    : '';
+                const whenText = email.lastIgnoredOpen
+                    ? ` (${formatTimestamp(email.lastIgnoredOpen)})`
+                    : '';
+                filteredHtml = `
+                    <div class="mb-4">
+                        <span class="info-badge" style="background:rgba(251,191,36,0.08);border-color:rgba(251,191,36,0.25);color:rgba(251,191,36,0.85);" title="Detected opens that weren't counted — e.g. your own view, or a non-Gmail/Yahoo client">
+                            ${ignoredCount} filtered open${ignoredCount > 1 ? 's' : ''}${reasonText}${whenText}
+                        </span>
+                    </div>
+                `;
+            }
+
             return `
                 <div class="email-card">
                     <div class="flex justify-between items-start mb-4">
@@ -696,6 +745,8 @@
                     </div>
 
                     ${lastOpenedText ? `<div class="mb-4">${lastOpenedText}</div>` : ''}
+
+                    ${filteredHtml}
 
                     ${opensDetailsHtml}
 
@@ -804,12 +855,15 @@
         }
 
         function startCountdown() {
+            if (countdownInterval) clearInterval(countdownInterval);
+            resetCountdown();
             countdownInterval = setInterval(() => {
                 countdownValue--;
-                UI.countdown.textContent = countdownValue;
-
                 if (countdownValue <= 0) {
+                    resetCountdown();
                     loadEmails();
+                } else {
+                    UI.countdown.textContent = countdownValue;
                 }
             }, 1000);
         }

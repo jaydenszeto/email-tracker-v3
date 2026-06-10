@@ -333,16 +333,40 @@ function setupSendButtonListener(composeWindow) {
     .map((selector) => composeWindow.querySelector(selector))
     .find(Boolean);
 
+  let marked = false;
   const markTrackedEmailAsSent = () => {
+    if (marked) {
+      return;
+    }
     const emailId = composeWindow.getAttribute("data-email-id");
     if (!emailId) {
       return;
     }
+    marked = true;
 
     suppressSelfOpenById(emailId, "send-action");
     setTimeout(() => markEmailAsSent(emailId), 1000);
   };
 
+  if (sendButton) {
+    sendButton.addEventListener("click", markTrackedEmailAsSent, { once: true });
+  }
+
+  // Gmail's keyboard send (Cmd/Ctrl+Enter) never clicks the Send button, so a
+  // click-only listener silently misses those sends — leaving the email's open
+  // tracking permanently in the grace period. Catch the shortcut too.
+  composeWindow.addEventListener(
+    "keydown",
+    (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        markTrackedEmailAsSent();
+      }
+    },
+    true
+  );
+
+  // Last resort when no Send button can be found: treat the compose window
+  // closing as a send.
   if (!sendButton) {
     const observer = new MutationObserver(() => {
       if (!document.body.contains(composeWindow)) {
@@ -351,10 +375,7 @@ function setupSendButtonListener(composeWindow) {
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
-    return;
   }
-
-  sendButton.addEventListener("click", markTrackedEmailAsSent, { once: true });
 }
 
 async function injectTrackingOnBodyFocus(composeWindow) {

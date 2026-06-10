@@ -134,6 +134,71 @@ test("ignores browser opens because the product counts reliable mail proxies", (
   assert.equal(decision.reasons.includes("unsupported-open-type"), true);
 });
 
+test("keeps extension emails suppressed before the auto-sent fallback window", () => {
+  const email = {
+    createdAt: "2026-05-23T12:00:00.000Z",
+    sentAt: null,
+  };
+
+  // 10 minutes after creation, still inside the 30-minute fallback window.
+  assert.equal(
+    isWithinGracePeriod(email, "2026-05-23T12:10:00.000Z"),
+    true
+  );
+});
+
+test("auto-arms extension emails once the fallback window elapses", () => {
+  const email = {
+    createdAt: "2026-05-23T12:00:00.000Z",
+    sentAt: null,
+  };
+
+  // 40 minutes after creation, past the 30-minute fallback — a missed
+  // send-signal must not mute genuine opens forever.
+  assert.equal(
+    isWithinGracePeriod(email, "2026-05-23T12:40:00.000Z"),
+    false
+  );
+});
+
+test("counts an auto-armed proxy open when the send-signal was missed", () => {
+  const email = {
+    createdAt: "2026-05-23T12:00:00.000Z",
+    sentAt: null,
+    senderIp: "203.0.113.10",
+    selfOpenSuppressedUntil: null,
+  };
+
+  const decision = getOpenDecision(
+    email,
+    gmailProxyOpen,
+    "198.51.100.20",
+    "2026-05-23T12:40:00.000Z"
+  );
+
+  assert.equal(decision.shouldCount, true);
+  assert.deepEqual(decision.reasons, []);
+});
+
+test("still ignores compose-time opens before the fallback window", () => {
+  const email = {
+    createdAt: "2026-05-23T12:00:00.000Z",
+    sentAt: null,
+    senderIp: "203.0.113.10",
+    selfOpenSuppressedUntil: null,
+  };
+
+  const decision = getOpenDecision(
+    email,
+    gmailProxyOpen,
+    "198.51.100.20",
+    "2026-05-23T12:05:00.000Z"
+  );
+
+  assert.equal(decision.shouldCount, false);
+  assert.equal(decision.reasons.includes("grace-period"), true);
+});
+
 test("detects Gmail image proxy user agents", () => {
   const openType = detectOpenType(
     "Mozilla/5.0 (compatible; GoogleImageProxy)",

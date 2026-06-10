@@ -119,8 +119,11 @@ document.addEventListener("DOMContentLoaded", () => {
         result.apiUrl || "https://email-tracker-v3.onrender.com";
       const apiKey = result.apiKey;
 
+      // Pass the key in the URL fragment, not the query string: fragments are
+      // never sent to the server or leaked via the Referer header to the
+      // dashboard's CDN/font requests.
       const url = apiKey
-        ? `${dashboardUrl}?key=${encodeURIComponent(apiKey)}`
+        ? `${dashboardUrl}#key=${encodeURIComponent(apiKey)}`
         : dashboardUrl;
       chrome.tabs.create({ url });
     });

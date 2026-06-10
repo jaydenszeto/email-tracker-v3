@@ -24,6 +24,14 @@ const DEDUP_WINDOW_SECONDS = parsePositiveInt(
   process.env.DEDUP_WINDOW_SECONDS,
   60
 );
+// Safety net: if an extension email's "sent" signal is never received (e.g. the
+// user sent with a keyboard shortcut and the listener missed it), stop holding
+// every open in the grace period forever. After this many seconds from creation
+// we treat the email as sent so genuine opens start counting.
+const AUTO_SENT_FALLBACK_SECONDS = parsePositiveInt(
+  process.env.AUTO_SENT_FALLBACK_SECONDS,
+  1800
+);
 const PUBLIC_BASE_URL = (
   process.env.PUBLIC_BASE_URL ||
   process.env.RENDER_EXTERNAL_URL ||
@@ -77,6 +85,8 @@ const emailSchema = new mongoose.Schema({
   lastOpened: String,
   ignoredOpenCount: { type: Number, default: 0 },
   lastIgnoredOpen: String,
+  lastIgnoredOpenType: String,
+  lastIgnoredReason: String,
 });
 
 const userSchema = new mongoose.Schema({
@@ -290,19 +300,27 @@ function detectOpenType(userAgent, headers) {
 }
 
 function isWithinGracePeriod(email, openTimestamp) {
-  if (!email.sentAt) {
-    return true;
-  }
-
-  const sentTime = Date.parse(email.sentAt);
   const openTime = Date.parse(openTimestamp);
-
-  if (!Number.isFinite(sentTime) || !Number.isFinite(openTime)) {
+  if (!Number.isFinite(openTime)) {
     return true;
   }
 
-  const diffSeconds = (openTime - sentTime) / 1000;
-  return diffSeconds < GRACE_PERIOD_SECONDS;
+  if (email.sentAt) {
+    const sentTime = Date.parse(email.sentAt);
+    if (!Number.isFinite(sentTime)) {
+      return true;
+    }
+    return (openTime - sentTime) / 1000 < GRACE_PERIOD_SECONDS;
+  }
+
+  // No explicit "sent" signal yet. Keep suppressing compose/self opens until the
+  // fallback window elapses, then assume the email was sent so a missed
+  // send-signal can't mute genuine opens forever.
+  const createdTime = Date.parse(email.createdAt);
+  if (!Number.isFinite(createdTime)) {
+    return true;
+  }
+  return (openTime - createdTime) / 1000 < AUTO_SENT_FALLBACK_SECONDS;
 }
 
 function isSupportedProxyOpen(openInfo) {
@@ -434,6 +452,8 @@ function buildTrackedEmailRecord({
     lastOpened: null,
     ignoredOpenCount: 0,
     lastIgnoredOpen: null,
+    lastIgnoredOpenType: null,
+    lastIgnoredReason: null,
   };
 }
 
@@ -559,7 +579,11 @@ app.get("/track/:id", async (req, res) => {
             { _id: user._id, "emails.trackingId": trackId },
             {
               $inc: { "emails.$.ignoredOpenCount": 1 },
-              $set: { "emails.$.lastIgnoredOpen": now },
+              $set: {
+                "emails.$.lastIgnoredOpen": now,
+                "emails.$.lastIgnoredOpenType": openInfo.type,
+                "emails.$.lastIgnoredReason": decision.reasons.join(", "),
+              },
             }
           );
 

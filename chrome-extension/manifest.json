@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Email Tracker",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Automatically track email opens with invisible pixels",
   "permissions": [
     "storage",
@@ -17,8 +17,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://mail.google.com/*"],
-      "js": ["content.js"],
+      "matches": [
+        "https://mail.google.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
