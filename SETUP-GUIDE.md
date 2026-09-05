@@ -22,7 +22,7 @@ Live at **https://jaydenszeto.me/email-tracker/**.
 | Runtime | `/usr/bin/node` on port **3005**; env is inline `Environment=` lines in the unit (SELinux blocks `EnvironmentFile` under `/home`) |
 | Database | `mongod` 8.0 on `127.0.0.1:27017`, db `email-tracker` (`systemctl status mongod`) |
 | Reverse proxy | Caddy `/etc/caddy/Caddyfile`: `redir /email-tracker /email-tracker/` + `handle_path /email-tracker/* → localhost:3005` inside the `jaydenszeto.me` site block. Backup: `Caddyfile.bak.pre-email-tracker` |
-| Health | `curl https://jaydenszeto.me/email-tracker/health` |
+| Health | `curl https://jaydenszeto.me/email-tracker/health` — `clientIp` must be your real IP, not 127.0.0.1 (Xray → Caddy PROXY protocol; see lessons) |
 
 Redeploy after local changes: `./deploy.sh` (runs the tests first).
 

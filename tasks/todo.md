@@ -17,7 +17,7 @@
 - [completed] Docs: README (semantics table, config, migration), SETUP-GUIDE (server layout), deploy.sh
 - [pending] Reload the unpacked extension in Chrome (chrome://extensions → reload) so v1.1.0 is active — could not be automated
 - [completed] Fix: sender-ip rule matched every open because Xray→Caddy loopback makes every client 127.0.0.1 (rule now proxy-exempt and public-IP-only; 23/23 e2e from outside)
-- [pending] Real client IPs server-wide: Xray xver=1 + Caddy proxy_protocol listener wrapper (awaiting approval — touches VPN config)
+- [completed] Real client IPs server-wide: Xray xver=1 + Caddy proxy_protocol listener wrapper on :8443 (applied 2026-09-05, backups *.bak.pre-proxyproto)
 - [pending] Optional: once Render's redeploy is confirmed, decide whether to keep or delete the Render service (keeping it costs nothing and keeps old pixels alive)
 
 # review
