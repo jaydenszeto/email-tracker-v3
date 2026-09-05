@@ -616,11 +616,11 @@
                 'owner-report': 'your own view',
                 'duplicate': 'duplicate of a counted open'
             };
-            return String(reason || '')
+            const labels = String(reason || '')
                 .split(',')
                 .map((r) => map[r.trim()] || r.trim())
-                .filter(Boolean)
-                .join(', ');
+                .filter(Boolean);
+            return [...new Set(labels)].join(', ');
         }
 
         async function apiRequest(url, options = {}) {
