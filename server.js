@@ -399,11 +399,33 @@ function isDuplicateOpen(email, openType, timestamp) {
   });
 }
 
+// Loopback / private / unknown addresses are what we see when a reverse proxy
+// hides the real client, so they can never identify "the sender".
+function isPublicIp(value) {
+  const ip = normalizeIp(value);
+  if (!ip || ip === "Unknown") return false;
+  if (ip === "::1" || /^127\./.test(ip)) return false;
+  if (/^10\./.test(ip) || /^192\.168\./.test(ip)) return false;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return false;
+  if (/^169\.254\./.test(ip) || /^0\./.test(ip)) return false;
+  if (/^f[cd][0-9a-f]{2}:/i.test(ip) || /^fe80:/i.test(ip)) return false;
+  return true;
+}
+
+// The "opened from the sender's own IP" rule is only meaningful for direct
+// loads (the owner's browser rendering the compose/draft). Gmail/Yahoo
+// proxy opens always come from the provider's IPs, never the sender's, so
+// the rule must not apply to them — and it can't apply at all unless both
+// addresses are real public IPs.
+function isSenderIpOpen(email, openInfo, ip) {
+  if (isSupportedProxyOpen(openInfo)) return false;
+  if (!isPublicIp(email.senderIp) || !isPublicIp(ip)) return false;
+  return normalizeIp(ip) === normalizeIp(email.senderIp);
+}
+
 function getOpenDecision(email, openInfo, ip, openTimestamp) {
   const inGracePeriod = isWithinGracePeriod(email, openTimestamp);
-  const isSenderIp = Boolean(
-    email.senderIp && normalizeIp(ip) === normalizeIp(email.senderIp)
-  );
+  const isSenderIp = isSenderIpOpen(email, openInfo, ip);
   const isSupportedProxy = isSupportedProxyOpen(openInfo);
   const isSelfSuppressed = isSelfOpenSuppressed(email, openTimestamp);
   const isSelfReported = isNearSelfViewReport(email, openTimestamp);
@@ -543,6 +565,7 @@ app.get("/health", (req, res) => {
     status: ok ? "ok" : "degraded",
     db: ["disconnected", "connected", "connecting", "disconnecting"][dbState] || "unknown",
     uptimeSeconds: Math.round(process.uptime()),
+    clientIp: getClientIp(req),
     publicBaseUrl: PUBLIC_BASE_URL || null,
     trackRedirectBase: TRACK_REDIRECT_BASE || null,
     version: require("./package.json").version,
@@ -916,6 +939,8 @@ module.exports = {
   getPublicBaseUrl,
   isDuplicateOpen,
   isNearSelfViewReport,
+  isPublicIp,
+  isSenderIpOpen,
   isSelfOpenSuppressed,
   isSupportedProxyOpen,
   isWithinGracePeriod,

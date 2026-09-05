@@ -80,7 +80,25 @@ test("ignores opens during the grace period", () => {
   assert.equal(decision.reasons.includes("grace-period"), true);
 });
 
-test("ignores direct sender IP opens", () => {
+test("sender-ip flags direct browser loads from the sender's public IP", () => {
+  const email = {
+    senderIp: "203.0.113.10",
+    sentAt: "2026-05-23T12:00:00.000Z",
+    selfOpenSuppressedUntil: null,
+  };
+
+  const decision = getOpenDecision(
+    email,
+    browserOpen,
+    "::ffff:203.0.113.10",
+    "2026-05-23T12:01:00.000Z"
+  );
+
+  assert.equal(decision.shouldCount, false);
+  assert.equal(decision.reasons.includes("sender-ip"), true);
+});
+
+test("sender-ip never applies to Gmail/Yahoo proxy opens (they come from Google's IPs)", () => {
   const email = {
     senderIp: "203.0.113.10",
     sentAt: "2026-05-23T12:00:00.000Z",
@@ -90,12 +108,30 @@ test("ignores direct sender IP opens", () => {
   const decision = getOpenDecision(
     email,
     gmailProxyOpen,
-    "::ffff:203.0.113.10",
+    "203.0.113.10",
     "2026-05-23T12:01:00.000Z"
   );
 
-  assert.equal(decision.shouldCount, false);
-  assert.equal(decision.reasons.includes("sender-ip"), true);
+  assert.equal(decision.shouldCount, true);
+  assert.deepEqual(decision.reasons, []);
+});
+
+test("sender-ip is inert when a reverse proxy hides the client (loopback/private)", () => {
+  const { isSenderIpOpen, isPublicIp } = require("../server");
+
+  // Regression: behind Xray→Caddy on loopback every request looked like
+  // 127.0.0.1, so senderIp === every open's IP and everything was filtered.
+  const email = { senderIp: "127.0.0.1" };
+  assert.equal(isSenderIpOpen(email, browserOpen, "127.0.0.1"), false);
+  assert.equal(isSenderIpOpen({ senderIp: "10.0.0.5" }, browserOpen, "10.0.0.5"), false);
+  assert.equal(isSenderIpOpen({ senderIp: "Unknown" }, browserOpen, "Unknown"), false);
+
+  assert.equal(isPublicIp("203.0.113.10"), true);
+  assert.equal(isPublicIp("::ffff:203.0.113.10"), true);
+  assert.equal(isPublicIp("127.0.0.1"), false);
+  assert.equal(isPublicIp("172.20.1.1"), false);
+  assert.equal(isPublicIp("fd00::1"), false);
+  assert.equal(isPublicIp("2001:db8::1"), true);
 });
 
 test("ignores owner-suppressed Gmail proxy opens", () => {
