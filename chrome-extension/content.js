@@ -143,14 +143,17 @@ function getEmailSubject(composeWindow) {
   }
 
   // Inline replies keep the thread subject in a hidden field, or show it as
-  // the thread header. Try both before giving up.
+  // the thread header. A pop-out compose with an empty subject box really
+  // has no subject yet — don't borrow a heading from elsewhere on the page.
   const hiddenSubject = composeWindow.querySelector('input[name="subject"]');
   if (hiddenSubject?.value?.trim()) {
     return hiddenSubject.value.trim();
   }
-  const threadSubject = getCurrentThreadSubject();
-  if (threadSubject) {
-    return threadSubject;
+  if (!composeWindow.matches('div[role="dialog"]')) {
+    const threadSubject = getCurrentThreadSubject();
+    if (threadSubject) {
+      return threadSubject;
+    }
   }
 
   return "No Subject";
@@ -479,6 +482,23 @@ function showErrorIndicator(message) {
 // Compose: send detection
 // ---------------------------------------------------------------------------
 
+// Gmail confirms a send with a snackbar ("Message sent" + Undo / View
+// message). Closing or discarding a draft shows nothing of the sort, so this
+// is the signal that separates "sent" from "closed" when the compose surface
+// disappears.
+function sentToastVisible() {
+  if (document.querySelector("#link_undo, span[id='link_undo']")) {
+    return true;
+  }
+  const alerts = document.querySelectorAll('[role="alert"], .bAq, .vh');
+  for (const el of alerts) {
+    if (/message sent|sending/i.test(el.textContent || "")) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function setupSendButtonListener(composeWindow) {
   if (composeWindow.getAttribute("data-tracker-send-listener") === "true") {
     return;
@@ -486,6 +506,15 @@ function setupSendButtonListener(composeWindow) {
   composeWindow.setAttribute("data-tracker-send-listener", "true");
 
   let marked = false;
+  let lastDetails = null;
+  const captureDetails = () => {
+    lastDetails = {
+      subject: getEmailSubject(composeWindow),
+      recipient: getRecipientEmail(composeWindow) || undefined,
+    };
+    return lastDetails;
+  };
+
   const markTrackedEmailAsSent = (via) => {
     if (marked) {
       return;
@@ -496,11 +525,10 @@ function setupSendButtonListener(composeWindow) {
     }
     marked = true;
 
-    // Capture the final subject/recipient *now*; the compose DOM is torn down
-    // right after Gmail sends.
+    // Use the freshest subject/recipient we managed to read while the
+    // compose DOM still existed (it is torn down right after Gmail sends).
     const details = {
-      subject: getEmailSubject(composeWindow),
-      recipient: getRecipientEmail(composeWindow) || undefined,
+      ...(document.body.contains(composeWindow) ? captureDetails() : lastDetails || {}),
       via,
     };
 
@@ -508,17 +536,24 @@ function setupSendButtonListener(composeWindow) {
     // the sender's own thread. Arm suppression before that fetch lands.
     suppressSelfOpenById(emailId, "send-action");
     setTimeout(() => markEmailAsSent(emailId, details), 1000);
+    console.log("📨 Email Tracker: send detected via", via, details.subject);
   };
 
-  const sendButton = findSendButton(composeWindow);
-  if (sendButton) {
-    sendButton.addEventListener("click", () => markTrackedEmailAsSent("click"), {
-      once: true,
-      capture: true,
-    });
-  }
+  // Delegated, capture-phase click: Gmail re-renders the Send button when the
+  // compose state changes, so a listener bound to one button element can be
+  // orphaned. Matching at click time on the container survives that.
+  composeWindow.addEventListener(
+    "click",
+    (event) => {
+      const button = event.target?.closest?.('div[role="button"], button, td[role="button"]');
+      if (button && composeWindow.contains(button) && isSendButton(button)) {
+        markTrackedEmailAsSent("click");
+      }
+    },
+    true
+  );
 
-  // Gmail's keyboard send (Cmd/Ctrl+Enter) never clicks the Send button.
+  // Keyboard send (Cmd/Ctrl+Enter) never clicks the Send button.
   composeWindow.addEventListener(
     "keydown",
     (event) => {
@@ -529,17 +564,40 @@ function setupSendButtonListener(composeWindow) {
     true
   );
 
-  // Last resort when no Send button can be found: treat the compose surface
-  // disappearing as a send.
-  if (!sendButton) {
-    const observer = new MutationObserver(() => {
-      if (!document.body.contains(composeWindow)) {
-        markTrackedEmailAsSent("compose-closed");
-        observer.disconnect();
+  // Keep a recent snapshot of subject/recipient so a send we only notice
+  // *after* the compose DOM is gone still reports the final values.
+  composeWindow.addEventListener("focusout", captureDetails, true);
+  composeWindow.addEventListener("input", captureDetails, true);
+
+  // Outcome-based fallback: when the compose surface disappears, look for
+  // Gmail's "Message sent" confirmation for a few seconds. Present → sent.
+  // Absent → the draft was closed/discarded and stays untracked-until-sent.
+  const observer = new MutationObserver(() => {
+    if (marked) {
+      observer.disconnect();
+      return;
+    }
+    if (document.body.contains(composeWindow)) {
+      return;
+    }
+    observer.disconnect();
+
+    const deadline = Date.now() + 8000;
+    const poll = () => {
+      if (marked) return;
+      if (sentToastVisible()) {
+        markTrackedEmailAsSent("sent-toast");
+        return;
       }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
+      if (Date.now() < deadline) {
+        setTimeout(poll, 250);
+      } else {
+        console.log("📝 Email Tracker: compose closed without a send confirmation (draft kept)");
+      }
+    };
+    poll();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -808,6 +866,9 @@ function armSelfOpenSuppressionForRow(row, email) {
   // Fire on the *intent* to open (mousedown) so the report races ahead of
   // Gmail's own thread render and proxy fetch.
   const suppress = () => {
+    if (!isActivelyViewingGmail()) {
+      return;
+    }
     reportSelfViewById(email.id, "gmail-row-open");
   };
 
@@ -828,7 +889,18 @@ function armSelfOpenSuppressionForRow(row, email) {
 // re-report on every DOM mutation, while navigating away and back does.
 let lastReportedThreadKey = null;
 
+// "Actively reading" = this Gmail tab is visible AND focused. A Gmail tab
+// parked in the background can't be the owner reading the email, so it must
+// never suppress a recipient's open — even if Gmail re-renders the thread.
+function isActivelyViewingGmail() {
+  return document.visibilityState === "visible" && document.hasFocus();
+}
+
 async function suppressCurrentThreadIfTracked(trackingMap) {
+  if (!isActivelyViewingGmail()) {
+    return;
+  }
+
   const subject = getCurrentThreadSubject();
   if (!subject) {
     lastReportedThreadKey = null;
@@ -975,6 +1047,31 @@ function startInboxMonitoring() {
   // Periodic refresh so open counts update without a page reload.
   setInterval(() => addInboxIndicators(true), 30000);
 }
+
+// Leaving the tab ends the "actively reading" session; coming back to a
+// tracked thread that's still on screen starts a new one and is reported
+// again (the owner is looking at it right now).
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") {
+    lastReportedThreadKey = null;
+    return;
+  }
+  if (trackedEmailsCache.length > 0) {
+    setTimeout(() => {
+      suppressCurrentThreadIfTracked(buildTrackingMap(trackedEmailsCache));
+    }, 100);
+  }
+});
+window.addEventListener("blur", () => {
+  lastReportedThreadKey = null;
+});
+window.addEventListener("focus", () => {
+  if (trackedEmailsCache.length > 0) {
+    setTimeout(() => {
+      suppressCurrentThreadIfTracked(buildTrackingMap(trackedEmailsCache));
+    }, 100);
+  }
+});
 
 // Navigating into a thread changes the hash. Report from the cached list
 // immediately (no fetch, no debounce) to beat Gmail's proxy fetch, then do

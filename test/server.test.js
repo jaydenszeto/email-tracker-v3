@@ -373,3 +373,38 @@ test("/track redirects to the current server when TRACK_REDIRECT_BASE is set (le
     child.kill();
   }
 });
+
+test("first proxy open of an unsent extension email infers the send and arms the owner window", () => {
+  const { inferSentFromProxyOpen } = require("../server");
+  const email = {
+    source: "gmail-extension",
+    createdAt: "2026-05-23T12:00:00.000Z",
+    sentAt: null,
+  };
+
+  const inferred = inferSentFromProxyOpen(email, gmailProxyOpen, "2026-05-23T12:03:00.000Z");
+  assert.equal(inferred.sentAt, "2026-05-23T12:03:00.000Z");
+  assert.equal(inferred.selfOpenSuppressedUntil, "2026-05-23T12:03:45.000Z");
+
+  // Once applied, a proxy open a minute later counts as a recipient open…
+  const armed = { ...email, ...inferred, senderIp: "203.0.113.10" };
+  const later = getOpenDecision(armed, gmailProxyOpen, "66.249.84.174", "2026-05-23T12:04:10.000Z");
+  assert.equal(later.shouldCount, true);
+
+  // …while one inside the owner window is still held back.
+  const soon = getOpenDecision(armed, gmailProxyOpen, "66.249.84.174", "2026-05-23T12:03:20.000Z");
+  assert.equal(soon.shouldCount, false);
+  assert.equal(soon.reasons.includes("owner-suppression"), true);
+});
+
+test("send inference never fires for sent emails, manual links, or non-proxy loads", () => {
+  const { inferSentFromProxyOpen } = require("../server");
+  const ts = "2026-05-23T12:03:00.000Z";
+  assert.equal(inferSentFromProxyOpen({ source: "gmail-extension", sentAt: ts }, gmailProxyOpen, ts), null);
+  assert.equal(inferSentFromProxyOpen({ source: "manual", sentAt: null }, gmailProxyOpen, ts), null);
+  assert.equal(inferSentFromProxyOpen({ source: "gmail-extension", sentAt: null }, browserOpen, ts), null);
+  assert.equal(
+    inferSentFromProxyOpen({ source: "gmail-extension", sentAt: null }, { type: "bot", isLikelyReal: false }, ts),
+    null
+  );
+});

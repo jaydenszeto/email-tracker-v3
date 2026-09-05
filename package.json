@@ -1,6 +1,6 @@
 {
   "name": "email-tracker",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Email tracking with pixel",
   "main": "server.js",
   "scripts": {

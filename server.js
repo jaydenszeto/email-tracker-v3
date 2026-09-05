@@ -459,6 +459,28 @@ function getOpenDecision(email, openInfo, ip, openTimestamp) {
   };
 }
 
+// A Gmail/Yahoo proxy only ever fetches the pixel from a *delivered* message
+// (drafts load images directly in the browser). So the first proxy open of an
+// extension email that never got its send signal is proof it was sent — and,
+// being the first render, almost certainly the sender's own thread view. Treat
+// that moment as the send: start the grace period + owner window from here so
+// a missed send signal costs 45 seconds, not the 30-minute fallback.
+function inferSentFromProxyOpen(email, openInfo, openTimestamp) {
+  if (email.sentAt) return null;
+  if (email.source !== EXTENSION_SOURCE) return null;
+  if (!isSupportedProxyOpen(openInfo) || !openInfo.isLikelyReal) return null;
+
+  const openTime = Date.parse(openTimestamp);
+  if (!Number.isFinite(openTime)) return null;
+
+  return {
+    sentAt: new Date(openTime).toISOString(),
+    selfOpenSuppressedUntil: new Date(
+      openTime + SELF_OPEN_SUPPRESSION_SECONDS * 1000
+    ).toISOString(),
+  };
+}
+
 function buildTrackedEmailRecord({
   subject,
   recipient,
@@ -601,7 +623,28 @@ app.get("/track/:id", async (req, res) => {
 
       if (email) {
         const now = new Date().toISOString();
-        const decision = getOpenDecision(email, openInfo, ip, now);
+        const inferred = inferSentFromProxyOpen(email, openInfo, now);
+        const decision = inferred
+          ? {
+              shouldCount: false,
+              reasons: ["inferred-sent", "grace-period", "owner-suppression"],
+            }
+          : getOpenDecision(email, openInfo, ip, now);
+
+        if (inferred) {
+          await User.updateOne(
+            { _id: user._id, "emails.trackingId": trackId },
+            {
+              $set: {
+                "emails.$.sentAt": inferred.sentAt,
+                "emails.$.selfOpenSuppressedUntil": inferred.selfOpenSuppressedUntil,
+              },
+            }
+          );
+          console.log(
+            `📬 First proxy open for unsent email "${email.subject}" — inferred send at ${inferred.sentAt}`
+          );
+        }
 
         if (decision.shouldCount) {
           const openEvent = {
@@ -937,6 +980,7 @@ module.exports = {
   detectOpenType,
   getOpenDecision,
   getPublicBaseUrl,
+  inferSentFromProxyOpen,
   isDuplicateOpen,
   isNearSelfViewReport,
   isPublicIp,

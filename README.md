@@ -19,7 +19,7 @@ Each user has a private API key. Generate a key from the dashboard or extension,
 ## Tracking Semantics
 
 - Dashboard/API-created links activate immediately unless created with `deferCountingUntilSent: true`.
-- Gmail extension-created links stay inactive until the extension detects the send action (Send click, Cmd/Ctrl+Enter, or the compose surface closing). If the send signal is missed entirely, counting starts automatically 30 minutes after creation.
+- Gmail extension-created links stay inactive until the extension detects the send action (Send click, Cmd/Ctrl+Enter, or Gmail's "Message sent" toast after the compose closes). If that signal is still missed, the first proxy open infers the send; as a last resort counting starts 30 minutes after creation.
 - Opens within the first 10 seconds after activation are ignored by default.
 - Duplicate opens from the same proxy type within 60 seconds are ignored.
 - Only Gmail/Yahoo proxy opens are counted as reliable recipient opens. Direct browser loads (including your own compose window, the dashboard's "copy URL" tests, and Outlook/Apple Mail, which don't proxy) are recorded as *filtered* opens, never counted.
@@ -34,6 +34,8 @@ Your own views of a sent email go through the same Gmail image proxy as a recipi
 | Send (click / shortcut) | Sends the *final* subject + recipient, arms a 45s owner window | `mark-sent` updates the record, sets `sentAt`, arms the 45s window itself as a backstop |
 | You click a tracked row / open a tracked thread | Reports a self-view immediately from cache (no fetch first) | Arms a 45s window **and deletes any open counted within ±15s** (the proxy usually fetches before the report arrives) |
 | Draft reopened / compose re-rendered | Re-attaches to the pixel already in the body instead of adding a second one | — |
+| Send signal missed entirely | — | The first Gmail/Yahoo proxy hit on an unsent email proves it was delivered: the server marks it sent *then* and starts the 45s owner window (`inferred-sent`), instead of waiting for the 30-minute fallback |
+| Gmail tab in the background | Never reports self-views (tab must be visible **and** focused). Returning to the tab with a tracked thread on screen counts as reading it and reports once | — |
 | Your own IP loads the pixel directly | — | Ignored (`sender-ip`) |
 
 Every filtered open is still recorded with its reason and shown in the dashboard as "N filtered opens", so you can see what was rejected and why.
