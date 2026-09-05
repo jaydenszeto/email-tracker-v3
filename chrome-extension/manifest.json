@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Email Tracker",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Automatically track email opens with invisible pixels",
   "permissions": [
     "storage",
@@ -9,6 +9,7 @@
   ],
   "host_permissions": [
     "https://mail.google.com/*",
+    "https://jaydenszeto.me/*",
     "http://localhost:3000/*",
     "https://*.onrender.com/*"
   ],

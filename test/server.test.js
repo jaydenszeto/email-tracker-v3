@@ -224,3 +224,116 @@ test("validates string inputs", () => {
   assert.equal(readStringField(42, { required: true }).error, "Field must be a string");
   assert.equal(readStringField("", { required: true }).error, "Required field is missing");
 });
+
+test("real Gmail proxy user agent (with 'via ggpht.com') is a gmail-proxy open", () => {
+  const openType = detectOpenType(
+    "Mozilla/5.0 (Windows NT 5.1; rv:11.0) Gecko Firefox/11.0 (via ggpht.com GoogleImageProxy)",
+    {}
+  );
+  assert.deepEqual(openType, { type: "gmail-proxy", isLikelyReal: true });
+});
+
+test("Yahoo mail proxy is a supported proxy open", () => {
+  const openType = detectOpenType(
+    "YahooMailProxy; https://help.yahoo.com/kb/yahoo-mail-proxy-SLN28749.html",
+    {}
+  );
+  assert.deepEqual(openType, { type: "yahoo-proxy", isLikelyReal: true });
+});
+
+test("duplicate proxy fetches inside the dedup window are ignored", () => {
+  const email = {
+    senderIp: "203.0.113.10",
+    sentAt: "2026-05-23T12:00:00.000Z",
+    selfOpenSuppressedUntil: null,
+    opens: [{ timestamp: "2026-05-23T12:05:00.000Z", openType: "gmail-proxy" }],
+  };
+
+  const dup = getOpenDecision(email, gmailProxyOpen, "198.51.100.20", "2026-05-23T12:05:30.000Z");
+  assert.equal(dup.shouldCount, false);
+  assert.equal(dup.reasons.includes("duplicate"), true);
+
+  const later = getOpenDecision(email, gmailProxyOpen, "198.51.100.20", "2026-05-23T12:06:30.000Z");
+  assert.equal(later.shouldCount, true);
+});
+
+test("owner self-view report suppresses opens within the report window", () => {
+  const email = {
+    senderIp: "203.0.113.10",
+    sentAt: "2026-05-23T12:00:00.000Z",
+    selfOpenSuppressedUntil: null,
+    selfViewReports: ["2026-05-23T12:10:00.000Z"],
+  };
+
+  // 10 seconds before the report (proxy fetched before the extension's
+  // report arrived) — inside the 15s window.
+  const before = getOpenDecision(email, gmailProxyOpen, "198.51.100.20", "2026-05-23T12:09:50.000Z");
+  assert.equal(before.shouldCount, false);
+  assert.equal(before.reasons.includes("owner-report"), true);
+
+  // A minute later is a distinct open again.
+  const after = getOpenDecision(email, gmailProxyOpen, "198.51.100.20", "2026-05-23T12:11:00.000Z");
+  assert.equal(after.shouldCount, true);
+});
+
+test("removeNearbyOpenEvents deletes counted opens around a self-view and fixes counters", () => {
+  const { removeNearbyOpenEvents } = require("../server");
+  const email = {
+    opens: [
+      { timestamp: "2026-05-23T12:00:00.000Z", openType: "gmail-proxy" },
+      { timestamp: "2026-05-23T12:09:52.000Z", openType: "gmail-proxy" },
+      { timestamp: "2026-05-23T12:30:00.000Z", openType: "gmail-proxy" },
+    ],
+    openCount: 3,
+    lastOpened: "2026-05-23T12:30:00.000Z",
+  };
+
+  const removed = removeNearbyOpenEvents(email, "2026-05-23T12:10:00.000Z", 15);
+  assert.equal(removed, 1);
+  assert.equal(email.openCount, 2);
+  assert.equal(email.lastOpened, "2026-05-23T12:30:00.000Z");
+
+  const removedAll = removeNearbyOpenEvents(email, "2026-05-23T12:30:00.000Z", 15);
+  assert.equal(removedAll, 1);
+  assert.equal(email.openCount, 1);
+  assert.equal(email.lastOpened, "2026-05-23T12:00:00.000Z");
+});
+
+test("/track redirects to the current server when TRACK_REDIRECT_BASE is set (legacy Render pixels)", async () => {
+  const { spawn } = require("node:child_process");
+  const path = require("node:path");
+
+  // Boot a throwaway copy of the app with the redirect enabled. It never
+  // touches the database for /track when redirecting.
+  const child = spawn(
+    process.execPath,
+    [
+      "-e",
+      `
+      const { app } = require(${JSON.stringify(path.join(__dirname, "..", "server.js"))});
+      const server = app.listen(0, () => {
+        process.stdout.write(String(server.address().port) + "\\n");
+      });
+      `,
+    ],
+    { env: { ...process.env, TRACK_REDIRECT_BASE: "https://tracker.example.com/app/" } }
+  );
+
+  const port = await new Promise((resolve, reject) => {
+    child.stdout.once("data", (d) => resolve(Number(String(d).trim())));
+    child.stderr.once("data", (d) => reject(new Error(String(d))));
+  });
+
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/track/abc-123`, { redirect: "manual" });
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get("location"), "https://tracker.example.com/app/track/abc-123");
+    assert.match(res.headers.get("cache-control"), /no-store/);
+
+    const health = await fetch(`http://127.0.0.1:${port}/health`);
+    assert.equal(health.status, 503); // no DB in this throwaway process
+    assert.equal((await health.json()).trackRedirectBase, "https://tracker.example.com/app");
+  } finally {
+    child.kill();
+  }
+});

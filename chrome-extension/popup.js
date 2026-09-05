@@ -14,7 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (result.apiUrl) {
       apiUrlInput.value = result.apiUrl;
     } else {
-      apiUrlInput.value = "https://email-tracker-v3.onrender.com";
+      apiUrlInput.value = "https://jaydenszeto.me/email-tracker";
     }
 
     if (result.autoTrack !== undefined) {
@@ -116,15 +116,16 @@ document.addEventListener("DOMContentLoaded", () => {
   openDashboardBtn.addEventListener("click", () => {
     chrome.storage.sync.get(["apiUrl", "apiKey"], (result) => {
       const dashboardUrl =
-        result.apiUrl || "https://email-tracker-v3.onrender.com";
+        result.apiUrl || "https://jaydenszeto.me/email-tracker";
       const apiKey = result.apiKey;
 
       // Pass the key in the URL fragment, not the query string: fragments are
       // never sent to the server or leaked via the Referer header to the
       // dashboard's CDN/font requests.
-      const url = apiKey
-        ? `${dashboardUrl}#key=${encodeURIComponent(apiKey)}`
-        : dashboardUrl;
+      // Trailing slash: the dashboard resolves its API calls relative to the
+      // directory it was served from (it may live under a path prefix).
+      const base = `${dashboardUrl.replace(/\/+$/, "")}/`;
+      const url = apiKey ? `${base}#key=${encodeURIComponent(apiKey)}` : base;
       chrome.tabs.create({ url });
     });
   });

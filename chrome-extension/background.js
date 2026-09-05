@@ -10,12 +10,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+const DEFAULT_API_URL = "https://jaydenszeto.me/email-tracker";
+// Hosts the tracker used to live on. Installs still pointing at one of these
+// are migrated to the current server on update.
+const LEGACY_API_URLS = ["https://email-tracker-v3.onrender.com"];
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.sync.get(["apiUrl", "autoTrack"], (result) => {
     const defaults = {};
 
-    if (!result.apiUrl) {
-      defaults.apiUrl = "https://email-tracker-v3.onrender.com";
+    const storedUrl = String(result.apiUrl || "").trim().replace(/\/+$/, "");
+    if (!storedUrl || LEGACY_API_URLS.includes(storedUrl)) {
+      defaults.apiUrl = DEFAULT_API_URL;
     }
 
     if (result.autoTrack === undefined) {

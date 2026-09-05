@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const crypto = require("crypto");
+const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,9 +17,13 @@ const SELF_OPEN_SUPPRESSION_SECONDS = parsePositiveInt(
   process.env.SELF_OPEN_SUPPRESSION_SECONDS,
   45
 );
+// How far (in either direction) a self-view report reaches when deleting
+// already-counted opens. The extension reports a self-view after a network
+// round-trip, so Gmail's proxy load of the pixel usually lands a few seconds
+// *before* the report; keep the window generous.
 const SELF_VIEW_WINDOW_SECONDS = parsePositiveInt(
   process.env.SELF_VIEW_WINDOW_SECONDS,
-  5
+  15
 );
 const DEDUP_WINDOW_SECONDS = parsePositiveInt(
   process.env.DEDUP_WINDOW_SECONDS,
@@ -37,13 +42,24 @@ const PUBLIC_BASE_URL = (
   process.env.RENDER_EXTERNAL_URL ||
   ""
 ).replace(/\/+$/, "");
+// Legacy pixels: emails sent while the tracker lived on Render still point at
+// the old host. When this code runs there, /track/:id is redirected to the
+// current server so those opens keep landing in one database. Set
+// TRACK_REDIRECT_BASE explicitly to override, or "" to disable.
+const TRACK_REDIRECT_BASE = (
+  process.env.TRACK_REDIRECT_BASE !== undefined
+    ? process.env.TRACK_REDIRECT_BASE
+    : process.env.RENDER
+      ? "https://jaydenszeto.me/email-tracker"
+      : ""
+).replace(/\/+$/, "");
 const MANUAL_SOURCE = "manual";
 const EXTENSION_SOURCE = "gmail-extension";
 
 app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json());
-app.use(express.static("public"));
+app.use(express.static(path.join(__dirname, "public")));
 
 const emailSchema = new mongoose.Schema({
   id: String,
@@ -520,8 +536,34 @@ app.post("/api/auth/generate-key", async (req, res) => {
   }
 });
 
+app.get("/health", (req, res) => {
+  const dbState = mongoose.connection.readyState; // 1 = connected
+  const ok = dbState === 1;
+  res.status(ok ? 200 : 503).json({
+    status: ok ? "ok" : "degraded",
+    db: ["disconnected", "connected", "connecting", "disconnecting"][dbState] || "unknown",
+    uptimeSeconds: Math.round(process.uptime()),
+    publicBaseUrl: PUBLIC_BASE_URL || null,
+    trackRedirectBase: TRACK_REDIRECT_BASE || null,
+    version: require("./package.json").version,
+  });
+});
+
 app.get("/track/:id", async (req, res) => {
   const trackId = req.params.id;
+
+  if (TRACK_REDIRECT_BASE) {
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, private",
+      Pragma: "no-cache",
+      Expires: "0",
+    });
+    return res.redirect(
+      302,
+      `${TRACK_REDIRECT_BASE}/track/${encodeURIComponent(trackId)}`
+    );
+  }
+
   const userAgent = req.headers["user-agent"] || "Unknown";
   const ip = getClientIp(req);
   const referer = req.headers["referer"] || "Direct";
@@ -662,11 +704,47 @@ app.post("/api/emails/:id/mark-sent", validateApiKey, async (req, res) => {
       return res.status(404).json({ error: "Email not found" });
     }
 
+    const body = req.body || {};
+    const subjectField = readStringField(body.subject, { maxLength: 300 });
+    const recipientField = readStringField(body.recipient, { maxLength: 320 });
+    let changed = false;
+
+    // The pixel is created as soon as the body is focused, often before the
+    // subject/recipient are final. Take the values the extension saw at send
+    // time so inbox matching and self-view suppression work on the real subject.
+    if (!subjectField.error && subjectField.value && subjectField.value !== email.subject) {
+      email.subject = subjectField.value;
+      changed = true;
+    }
+    if (
+      !recipientField.error &&
+      recipientField.value &&
+      recipientField.value !== email.recipient
+    ) {
+      email.recipient = recipientField.value;
+      changed = true;
+    }
+
     let removed = 0;
     if (!email.sentAt) {
       const now = new Date().toISOString();
       email.sentAt = now;
       removed = removeNearbyOpenEvents(email, now, GRACE_PERIOD_SECONDS);
+
+      // Gmail renders the just-sent message (through its image proxy) in the
+      // sender's own thread view right away. Arm owner suppression here too so
+      // a missed extension suppress call can't turn that into a "recipient open".
+      const suppressUntil = new Date(
+        Date.parse(now) + SELF_OPEN_SUPPRESSION_SECONDS * 1000
+      );
+      const existingUntil = Date.parse(email.selfOpenSuppressedUntil);
+      if (!Number.isFinite(existingUntil) || suppressUntil.getTime() > existingUntil) {
+        email.selfOpenSuppressedUntil = suppressUntil.toISOString();
+      }
+      changed = true;
+    }
+
+    if (changed) {
       await user.save();
     }
 
@@ -677,6 +755,9 @@ app.post("/api/emails/:id/mark-sent", validateApiKey, async (req, res) => {
     res.json({
       message: "Email marked as sent",
       sentAt: email.sentAt,
+      subject: email.subject,
+      recipient: email.recipient,
+      suppressUntil: email.selfOpenSuppressedUntil,
       removedPreSendOpens: removed,
     });
   } catch (error) {
@@ -841,4 +922,5 @@ module.exports = {
   normalizeIp,
   parseUserAgent,
   readStringField,
+  removeNearbyOpenEvents,
 };

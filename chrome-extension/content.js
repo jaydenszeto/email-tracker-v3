@@ -1,15 +1,31 @@
 console.log("🚀 Email Tracker: Extension loaded!");
 
-let API_URL = "https://email-tracker-v3.onrender.com";
+const DEFAULT_API_URL = "https://jaydenszeto.me/email-tracker";
+const LEGACY_API_URLS = ["https://email-tracker-v3.onrender.com"];
+
+let API_URL = DEFAULT_API_URL;
 let AUTO_TRACK_ENABLED = true;
 let API_KEY = null;
 
 const SELF_OPEN_SUPPRESSION_SECONDS = 45;
+// Per-email timestamp of the last suppress call we sent (throttle).
 const selfOpenSuppressionCache = new Map();
-const reportedSelfViews = new Map();
+// Latest list of tracked emails from the server, refreshed by the inbox
+// indicator loop. Used so self-view reports never wait on a fetch.
+let trackedEmailsCache = [];
+let trackedEmailsCacheAt = 0;
+const TRACKED_CACHE_TTL_MS = 30 * 1000;
+
+function normalizeApiUrl(url) {
+  const trimmed = String(url || "").trim().replace(/\/+$/, "");
+  if (!trimmed || LEGACY_API_URLS.includes(trimmed)) {
+    return DEFAULT_API_URL;
+  }
+  return trimmed;
+}
 
 chrome.storage.sync.get(["apiUrl", "autoTrack", "apiKey"], (result) => {
-  if (result.apiUrl) API_URL = result.apiUrl;
+  API_URL = normalizeApiUrl(result.apiUrl);
   if (result.autoTrack !== undefined) AUTO_TRACK_ENABLED = result.autoTrack;
   if (result.apiKey) API_KEY = result.apiKey;
 
@@ -22,7 +38,7 @@ chrome.storage.sync.get(["apiUrl", "autoTrack", "apiKey"], (result) => {
 
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.apiUrl) {
-    API_URL = changes.apiUrl.newValue;
+    API_URL = normalizeApiUrl(changes.apiUrl.newValue);
     console.log("🔄 Email Tracker: Server URL updated to:", API_URL);
   }
   if (changes.autoTrack) {
@@ -32,10 +48,15 @@ chrome.storage.onChanged.addListener((changes) => {
   if (changes.apiKey) {
     API_KEY = changes.apiKey.newValue;
     selfOpenSuppressionCache.clear();
-    reportedSelfViews.clear();
+    trackedEmailsCache = [];
+    trackedEmailsCacheAt = 0;
     console.log("🔄 Email Tracker: API key updated");
   }
 });
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function normalizeTrackedSubject(subject) {
   return String(subject || "")
@@ -43,6 +64,67 @@ function normalizeTrackedSubject(subject) {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+}
+
+function apiHeaders(extra = {}) {
+  return { "X-API-Key": API_KEY, ...extra };
+}
+
+const COMPOSE_EDITOR_SELECTORS = [
+  'div[aria-label="Message Body"]',
+  'div[contenteditable="true"][role="textbox"]',
+  'div[g_editable="true"]',
+];
+
+function findEditor(root) {
+  for (const selector of COMPOSE_EDITOR_SELECTORS) {
+    const editor = root.querySelector(selector);
+    if (editor) {
+      return editor;
+    }
+  }
+  return null;
+}
+
+function isSendButton(button) {
+  const label = `${button.getAttribute("aria-label") || ""} ${
+    button.getAttribute("data-tooltip") || ""
+  }`.trim();
+  // "Send ‪(⌘Enter)‬" — but not "More send options" / "Send later".
+  return /^send\b/i.test(label) && !/later|options|schedule/i.test(label);
+}
+
+function findSendButton(composeWindow) {
+  const buttons = composeWindow.querySelectorAll(
+    'div[role="button"], button, td[role="button"]'
+  );
+  for (const button of buttons) {
+    if (isSendButton(button)) {
+      return button;
+    }
+  }
+  return composeWindow.querySelector("div.T-I.J-J5-Ji.aoO.v7.T-I-atl.L3");
+}
+
+// Verified against Gmail (Sep 2026): a pop-out compose is a role="dialog";
+// an inline reply has no dialog/form at all — the editor sits ~13 levels
+// below the element that also holds the Send button. So: dialog if present,
+// otherwise the nearest ancestor that contains a Send button.
+function findComposeContainer(editor) {
+  const dialog = editor.closest('div[role="dialog"]');
+  if (dialog) {
+    return dialog;
+  }
+
+  let node = editor.parentElement;
+  while (node && node !== document.body) {
+    if (findSendButton(node)) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+
+  return editor.closest("form");
 }
 
 function getEmailSubject(composeWindow) {
@@ -56,35 +138,84 @@ function getEmailSubject(composeWindow) {
     const subjectInput = composeWindow.querySelector(selector);
     const subject = subjectInput?.value?.trim();
     if (subject) {
-      console.log("✅ Email Tracker: Found subject:", subject);
       return subject;
     }
+  }
+
+  // Inline replies keep the thread subject in a hidden field, or show it as
+  // the thread header. Try both before giving up.
+  const hiddenSubject = composeWindow.querySelector('input[name="subject"]');
+  if (hiddenSubject?.value?.trim()) {
+    return hiddenSubject.value.trim();
+  }
+  const threadSubject = getCurrentThreadSubject();
+  if (threadSubject) {
+    return threadSubject;
   }
 
   return "No Subject";
 }
 
 function getRecipientEmail(composeWindow) {
-  const toField = composeWindow.querySelector('div[aria-label*="To"]');
-  if (!toField) {
-    return null;
-  }
+  // Gmail's To row is `div[name="to"]` (aria-label "To"); recipient chips
+  // inside it carry the address in `email` / `data-hovercard-id`. Avoid the
+  // loose `[aria-label*="To"]` match — it also hits "Toggle confidential mode".
+  const candidates = [
+    ...composeWindow.querySelectorAll(
+      'div[name="to"], div[aria-label="To"], textarea[name="to"], input[aria-label="To recipients"]'
+    ),
+  ];
 
-  const emailSpan = toField.querySelector("span[email]");
-  if (emailSpan) {
-    return emailSpan.getAttribute("email");
-  }
+  for (const toField of candidates) {
+    const emailSpan = toField.querySelector("span[email]");
+    if (emailSpan) {
+      return emailSpan.getAttribute("email");
+    }
 
-  for (const card of toField.querySelectorAll("[data-hovercard-id]")) {
-    const email = card.getAttribute("data-hovercard-id");
-    if (email && email.includes("@")) {
-      return email;
+    for (const card of toField.querySelectorAll("[data-hovercard-id]")) {
+      const email = card.getAttribute("data-hovercard-id");
+      if (email && email.includes("@")) {
+        return email;
+      }
+    }
+
+    const text = toField.value || toField.textContent || "";
+    const emailMatch = text.trim().match(/[\w.+-]+@[\w.-]+\.\w+/);
+    if (emailMatch) {
+      return emailMatch[0];
     }
   }
 
-  const emailMatch = toField.textContent.trim().match(/[\w.-]+@[\w.-]+\.\w+/);
-  return emailMatch ? emailMatch[0] : null;
+  // Newer Gmail: recipient chips carry the address in their own attributes.
+  const chip = composeWindow.querySelector(
+    'div[role="option"][data-hovercard-id], span[email], div[data-hovercard-id*="@"]'
+  );
+  if (chip) {
+    return chip.getAttribute("email") || chip.getAttribute("data-hovercard-id");
+  }
+
+  // Inline reply: Gmail collapses the To row to a display name with no
+  // address in the DOM. The reply goes to the sender of the latest message
+  // in the open thread, whose header does carry the address.
+  if (!composeWindow.matches('div[role="dialog"]')) {
+    const senders = document.querySelectorAll("span.gD[email], h3 span[email]");
+    const last = senders[senders.length - 1];
+    if (last) {
+      return last.getAttribute("email");
+    }
+  }
+
+  return null;
 }
+
+function trackingIdFromUrl(url) {
+  const match = String(url || "").match(/\/track\/([0-9a-f-]{36})/i);
+  return match ? match[1] : null;
+}
+
+// ---------------------------------------------------------------------------
+// Server calls
+// ---------------------------------------------------------------------------
 
 async function createTrackingPixel(subject, recipient) {
   if (!API_KEY) {
@@ -95,13 +226,10 @@ async function createTrackingPixel(subject, recipient) {
   try {
     const response = await fetch(`${API_URL}/api/emails`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": API_KEY,
-      },
+      headers: apiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         subject,
-        recipient,
+        recipient: recipient || "Unknown",
         source: "gmail-extension",
         deferCountingUntilSent: true,
       }),
@@ -122,16 +250,123 @@ async function createTrackingPixel(subject, recipient) {
   }
 }
 
-function injectTrackingPixel(composeWindow, trackingUrl) {
-  const selectors = [
-    'div[aria-label="Message Body"]',
-    'div[contenteditable="true"][role="textbox"]',
-    'div[g_editable="true"]',
-  ];
+async function suppressSelfOpenById(emailId, reason = "owner-open") {
+  if (!API_KEY || !emailId) {
+    return false;
+  }
 
-  const editor = selectors
-    .map((selector) => composeWindow.querySelector(selector))
-    .find(Boolean);
+  const lastSuppressedAt = selfOpenSuppressionCache.get(emailId) || 0;
+  const minInterval = (SELF_OPEN_SUPPRESSION_SECONDS * 1000) / 2;
+  if (Date.now() - lastSuppressedAt < minInterval) {
+    return true;
+  }
+
+  selfOpenSuppressionCache.set(emailId, Date.now());
+
+  try {
+    const response = await fetch(`${API_URL}/api/emails/${emailId}/suppress-self-open`, {
+      method: "POST",
+      keepalive: true,
+      headers: apiHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ seconds: SELF_OPEN_SUPPRESSION_SECONDS, reason }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server returned ${response.status}`);
+    }
+
+    return true;
+  } catch (error) {
+    selfOpenSuppressionCache.delete(emailId);
+    console.error("❌ Email Tracker: Error suppressing self-open:", error);
+    return false;
+  }
+}
+
+// Reports "the owner is looking at this email right now". The server arms a
+// suppression window AND deletes any open counted in the seconds around the
+// report, which covers the race where Gmail's proxy fetched the pixel before
+// this request arrived.
+async function reportSelfViewById(emailId, reason = "thread-view") {
+  if (!API_KEY || !emailId) {
+    return false;
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/emails/${emailId}/report-self-view`, {
+      method: "POST",
+      keepalive: true,
+      headers: apiHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ reason }),
+    });
+
+    if (response.ok) {
+      selfOpenSuppressionCache.set(emailId, Date.now());
+    }
+    return response.ok;
+  } catch (error) {
+    console.error("❌ Email Tracker: Error reporting self-view:", error);
+    return false;
+  }
+}
+
+async function markEmailAsSent(emailId, details = {}) {
+  if (!API_KEY || !emailId) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/emails/${emailId}/mark-sent`, {
+      method: "POST",
+      keepalive: true,
+      headers: apiHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(details),
+    });
+
+    if (!response.ok) {
+      console.error("❌ Email Tracker: Failed to mark email as sent:", response.status);
+      return;
+    }
+
+    // The subject/recipient may have changed at send time; refresh so inbox
+    // indicators and self-view matching use the final values.
+    trackedEmailsCacheAt = 0;
+    console.log("📤 Email Tracker: Marked as sent:", details.subject);
+  } catch (error) {
+    console.error("❌ Email Tracker: Error marking email as sent:", error);
+  }
+}
+
+async function fetchTrackedEmails(force = false) {
+  if (!API_KEY) {
+    return [];
+  }
+
+  if (!force && Date.now() - trackedEmailsCacheAt < TRACKED_CACHE_TTL_MS) {
+    return trackedEmailsCache;
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/emails`, { headers: apiHeaders() });
+
+    if (response.ok) {
+      trackedEmailsCache = await response.json();
+      trackedEmailsCacheAt = Date.now();
+      return trackedEmailsCache;
+    }
+  } catch (error) {
+    console.error("❌ Email Tracker: Error fetching tracked emails:", error);
+  }
+
+  return trackedEmailsCache;
+}
+
+// ---------------------------------------------------------------------------
+// UI
+// ---------------------------------------------------------------------------
+
+function injectTrackingPixel(composeWindow, trackingUrl) {
+  const editor = findEditor(composeWindow);
 
   if (!editor) {
     console.error("❌ Email Tracker: Could not find email editor");
@@ -206,8 +441,11 @@ function showTrackingIndicator(trackingUrl) {
     box-shadow:0 8px 30px rgba(34,197,94,0.4);backdrop-filter:blur(10px);
     animation:email-tracker-slide-in 0.3s ease-out;cursor:pointer;
   `;
+  indicator.title = trackingUrl;
   indicator.onclick = () => {
-    alert(`Tracking Pixel Added!\n\nTracking URL:\n${trackingUrl}`);
+    navigator.clipboard?.writeText(trackingUrl).catch(() => {});
+    indicator.querySelector("div div div:last-child").textContent =
+      "Tracking URL copied";
   };
 
   document.body.appendChild(indicator);
@@ -237,104 +475,18 @@ function showErrorIndicator(message) {
   setTimeout(() => indicator.remove(), 5000);
 }
 
-async function suppressSelfOpenById(emailId, reason = "owner-open") {
-  if (!API_KEY || !emailId) {
-    return false;
-  }
-
-  const lastSuppressedAt = selfOpenSuppressionCache.get(emailId) || 0;
-  const minInterval = (SELF_OPEN_SUPPRESSION_SECONDS * 1000) / 2;
-  if (Date.now() - lastSuppressedAt < minInterval) {
-    return true;
-  }
-
-  selfOpenSuppressionCache.set(emailId, Date.now());
-
-  try {
-    const response = await fetch(`${API_URL}/api/emails/${emailId}/suppress-self-open`, {
-      method: "POST",
-      keepalive: true,
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": API_KEY,
-      },
-      body: JSON.stringify({
-        seconds: SELF_OPEN_SUPPRESSION_SECONDS,
-        reason,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Server returned ${response.status}`);
-    }
-
-    return true;
-  } catch (error) {
-    selfOpenSuppressionCache.delete(emailId);
-    console.error("❌ Email Tracker: Error suppressing self-open:", error);
-    return false;
-  }
-}
-
-async function reportSelfViewById(emailId, reason = "thread-view") {
-  if (!API_KEY || !emailId) {
-    return false;
-  }
-
-  await suppressSelfOpenById(emailId, reason);
-
-  try {
-    const response = await fetch(`${API_URL}/api/emails/${emailId}/report-self-view`, {
-      method: "POST",
-      keepalive: true,
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": API_KEY,
-      },
-      body: JSON.stringify({ reason }),
-    });
-
-    return response.ok;
-  } catch (error) {
-    console.error("❌ Email Tracker: Error reporting self-view:", error);
-    return false;
-  }
-}
-
-async function markEmailAsSent(emailId) {
-  if (!API_KEY || !emailId) {
-    return;
-  }
-
-  try {
-    const response = await fetch(`${API_URL}/api/emails/${emailId}/mark-sent`, {
-      method: "POST",
-      headers: {
-        "X-API-Key": API_KEY,
-      },
-    });
-
-    if (!response.ok) {
-      console.error("❌ Email Tracker: Failed to mark email as sent:", response.status);
-    }
-  } catch (error) {
-    console.error("❌ Email Tracker: Error marking email as sent:", error);
-  }
-}
+// ---------------------------------------------------------------------------
+// Compose: send detection
+// ---------------------------------------------------------------------------
 
 function setupSendButtonListener(composeWindow) {
-  const sendButtonSelectors = [
-    'div[role="button"][aria-label*="Send" i]',
-    'div[data-tooltip*="Send" i]',
-    "div.T-I.J-J5-Ji.aoO.v7.T-I-atl.L3",
-  ];
-
-  const sendButton = sendButtonSelectors
-    .map((selector) => composeWindow.querySelector(selector))
-    .find(Boolean);
+  if (composeWindow.getAttribute("data-tracker-send-listener") === "true") {
+    return;
+  }
+  composeWindow.setAttribute("data-tracker-send-listener", "true");
 
   let marked = false;
-  const markTrackedEmailAsSent = () => {
+  const markTrackedEmailAsSent = (via) => {
     if (marked) {
       return;
     }
@@ -344,38 +496,94 @@ function setupSendButtonListener(composeWindow) {
     }
     marked = true;
 
+    // Capture the final subject/recipient *now*; the compose DOM is torn down
+    // right after Gmail sends.
+    const details = {
+      subject: getEmailSubject(composeWindow),
+      recipient: getRecipientEmail(composeWindow) || undefined,
+      via,
+    };
+
+    // Gmail immediately renders the sent message through its image proxy in
+    // the sender's own thread. Arm suppression before that fetch lands.
     suppressSelfOpenById(emailId, "send-action");
-    setTimeout(() => markEmailAsSent(emailId), 1000);
+    setTimeout(() => markEmailAsSent(emailId, details), 1000);
   };
 
+  const sendButton = findSendButton(composeWindow);
   if (sendButton) {
-    sendButton.addEventListener("click", markTrackedEmailAsSent, { once: true });
+    sendButton.addEventListener("click", () => markTrackedEmailAsSent("click"), {
+      once: true,
+      capture: true,
+    });
   }
 
-  // Gmail's keyboard send (Cmd/Ctrl+Enter) never clicks the Send button, so a
-  // click-only listener silently misses those sends — leaving the email's open
-  // tracking permanently in the grace period. Catch the shortcut too.
+  // Gmail's keyboard send (Cmd/Ctrl+Enter) never clicks the Send button.
   composeWindow.addEventListener(
     "keydown",
     (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-        markTrackedEmailAsSent();
+        markTrackedEmailAsSent("shortcut");
       }
     },
     true
   );
 
-  // Last resort when no Send button can be found: treat the compose window
-  // closing as a send.
+  // Last resort when no Send button can be found: treat the compose surface
+  // disappearing as a send.
   if (!sendButton) {
     const observer = new MutationObserver(() => {
       if (!document.body.contains(composeWindow)) {
-        markTrackedEmailAsSent();
+        markTrackedEmailAsSent("compose-closed");
         observer.disconnect();
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Compose: pixel injection
+// ---------------------------------------------------------------------------
+
+// A compose surface can already carry a pixel: Gmail re-creates the compose
+// DOM when a window is popped out/minimised, and a draft reopened later keeps
+// the pixel in its body. Re-attach to that tracked email instead of adding a
+// second pixel (which would double count and evade send-time suppression).
+async function adoptExistingPixel(composeWindow) {
+  const editor = findEditor(composeWindow);
+  if (!editor) {
+    return false;
+  }
+
+  const images = editor.querySelectorAll('img[src*="/track/"]');
+  for (const img of images) {
+    // Quoted replies include the *previous* message's pixel; that one belongs
+    // to a different tracked email and must be left alone.
+    if (img.closest("blockquote, .gmail_quote, .gmail_quote_container")) {
+      continue;
+    }
+
+    const trackingId = trackingIdFromUrl(img.getAttribute("src"));
+    if (!trackingId) {
+      continue;
+    }
+
+    const emails = await fetchTrackedEmails();
+    const email = emails.find((e) => e.trackingId === trackingId);
+    if (!email) {
+      continue;
+    }
+
+    composeWindow.setAttribute("data-tracker-injected", "true");
+    composeWindow.setAttribute("data-tracking-url", email.trackingUrl);
+    composeWindow.setAttribute("data-email-id", email.id);
+    setupSendButtonListener(composeWindow);
+    console.log("♻️ Email Tracker: Re-attached to existing pixel:", email.subject);
+    return true;
+  }
+
+  return false;
 }
 
 async function injectTrackingOnBodyFocus(composeWindow) {
@@ -396,22 +604,25 @@ async function injectTrackingOnBodyFocus(composeWindow) {
   try {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const recipient = getRecipientEmail(composeWindow);
-    if (!recipient) {
-      composeWindow.removeAttribute("data-tracker-processing");
+    if (await adoptExistingPixel(composeWindow)) {
       return;
     }
 
+    // Create the pixel as soon as the body is touched, even if the recipient
+    // and subject aren't filled in yet — people often write the body first
+    // and never click back into it. The final subject/recipient are sent
+    // with the mark-sent call.
+    const recipient = getRecipientEmail(composeWindow);
     const subject = getEmailSubject(composeWindow);
     const trackingData = await createTrackingPixel(subject, recipient);
     if (!trackingData) {
-      composeWindow.removeAttribute("data-tracker-processing");
       return;
     }
 
     if (injectTrackingPixel(composeWindow, trackingData.trackingUrl)) {
       composeWindow.setAttribute("data-email-id", trackingData.id);
       showTrackingIndicator(trackingData.trackingUrl);
+      trackedEmailsCacheAt = 0;
 
       chrome.runtime.sendMessage({
         type: "TRACKING_ADDED",
@@ -424,61 +635,59 @@ async function injectTrackingOnBodyFocus(composeWindow) {
       setupSendButtonListener(composeWindow);
     } else {
       showErrorIndicator("Could not inject pixel");
-      composeWindow.removeAttribute("data-tracker-processing");
     }
   } catch (error) {
     console.error("❌ Email Tracker: Unexpected error:", error);
-    composeWindow.removeAttribute("data-tracker-processing");
+  } finally {
+    // Allow a retry on the next interaction if we didn't end up injected.
+    if (composeWindow.getAttribute("data-tracker-injected") !== "true") {
+      composeWindow.removeAttribute("data-tracker-processing");
+    }
   }
 }
 
-function setupMessageBodyListener(composeWindow) {
+function setupComposeWindow(composeWindow) {
   if (composeWindow.getAttribute("data-tracker-listener") === "true") {
-    return;
+    return true;
   }
 
-  composeWindow.setAttribute("data-tracker-listener", "true");
-
-  const selectors = [
-    'div[aria-label="Message Body"]',
-    'div[contenteditable="true"][role="textbox"]',
-    'div[g_editable="true"]',
-  ];
-
-  const editor = selectors
-    .map((selector) => composeWindow.querySelector(selector))
-    .find(Boolean);
-
+  const editor = findEditor(composeWindow);
   if (!editor) {
     return false;
   }
 
+  composeWindow.setAttribute("data-tracker-listener", "true");
+
   const handleBodyInteraction = () => injectTrackingOnBodyFocus(composeWindow);
   editor.addEventListener("focus", handleBodyInteraction);
   editor.addEventListener("click", handleBodyInteraction);
+  editor.addEventListener("input", handleBodyInteraction);
+
+  // If the editor already has focus (Gmail focuses the body of inline
+  // replies immediately) don't wait for another interaction.
+  if (document.activeElement === editor) {
+    handleBodyInteraction();
+  }
 
   return true;
 }
 
 function detectComposeWindows() {
-  const selectors = [
-    'div[role="dialog"]',
-    "div.n1tfz",
-    'div[aria-label*="compose" i]',
-  ];
+  const seen = new Set();
+  for (const selector of COMPOSE_EDITOR_SELECTORS) {
+    document.querySelectorAll(selector).forEach((editor) => {
+      const composeWindow = findComposeContainer(editor);
+      if (!composeWindow || seen.has(composeWindow)) {
+        return;
+      }
+      seen.add(composeWindow);
 
-  for (const selector of selectors) {
-    document.querySelectorAll(selector).forEach((composeWindow) => {
-      const hasSubject = composeWindow.querySelector('input[name="subjectbox"]');
-      const hasEditor = composeWindow.querySelector('div[aria-label="Message Body"]');
-
-      if ((hasSubject || hasEditor) && !composeWindow.getAttribute("data-tracker-listener")) {
+      if (composeWindow.getAttribute("data-tracker-listener") !== "true") {
         setTimeout(() => {
-          const success = setupMessageBodyListener(composeWindow);
-          if (!success) {
-            setTimeout(() => setupMessageBodyListener(composeWindow), 1000);
+          if (!setupComposeWindow(composeWindow)) {
+            setTimeout(() => setupComposeWindow(composeWindow), 1000);
           }
-        }, 500);
+        }, 300);
       }
     });
   }
@@ -506,27 +715,9 @@ function init() {
   }, 1000);
 }
 
-async function fetchTrackedEmails() {
-  if (!API_KEY) {
-    return [];
-  }
-
-  try {
-    const response = await fetch(`${API_URL}/api/emails`, {
-      headers: {
-        "X-API-Key": API_KEY,
-      },
-    });
-
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (error) {
-    console.error("❌ Email Tracker: Error fetching tracked emails:", error);
-  }
-
-  return [];
-}
+// ---------------------------------------------------------------------------
+// Inbox: indicators and owner self-view suppression
+// ---------------------------------------------------------------------------
 
 function buildTrackingMap(trackedEmails) {
   const trackingMap = new Map();
@@ -550,10 +741,14 @@ function buildTrackingMap(trackedEmails) {
   return trackingMap;
 }
 
-function findTrackedEmailForSubject(subject, trackingMap) {
+function findTrackedEmailsForSubject(subject, trackingMap) {
   const normalizedSubject = normalizeTrackedSubject(subject);
-  const matches = trackingMap.get(normalizedSubject);
-  return matches && matches.length > 0 ? matches[0] : null;
+  return trackingMap.get(normalizedSubject) || [];
+}
+
+function findTrackedEmailForSubject(subject, trackingMap) {
+  const matches = findTrackedEmailsForSubject(subject, trackingMap);
+  return matches.length > 0 ? matches[0] : null;
 }
 
 function getOpenCount(email) {
@@ -586,7 +781,7 @@ function getCurrentThreadSubject() {
     "h2[data-thread-perm-id]",
     "div.ha h2",
     'div[role="main"] h2',
-    'div[data-thread-perm-id] h2',
+    "div[data-thread-perm-id] h2",
   ];
 
   for (const selector of selectors) {
@@ -610,6 +805,8 @@ function armSelfOpenSuppressionForRow(row, email) {
 
   row.setAttribute("data-email-tracker-self-open-id", email.id);
 
+  // Fire on the *intent* to open (mousedown) so the report races ahead of
+  // Gmail's own thread render and proxy fetch.
   const suppress = () => {
     reportSelfViewById(email.id, "gmail-row-open");
   };
@@ -619,7 +816,7 @@ function armSelfOpenSuppressionForRow(row, email) {
   row.addEventListener(
     "keydown",
     (event) => {
-      if (event.key === "Enter" || event.key === " ") {
+      if (event.key === "Enter" || event.key === " " || event.key === "o") {
         suppress();
       }
     },
@@ -627,21 +824,39 @@ function armSelfOpenSuppressionForRow(row, email) {
   );
 }
 
+// Track which thread we last reported so sitting on an open thread doesn't
+// re-report on every DOM mutation, while navigating away and back does.
+let lastReportedThreadKey = null;
+
 async function suppressCurrentThreadIfTracked(trackingMap) {
   const subject = getCurrentThreadSubject();
   if (!subject) {
+    lastReportedThreadKey = null;
     return;
   }
 
   const normalizedSubject = normalizeTrackedSubject(subject);
-  const lastReport = reportedSelfViews.get(normalizedSubject);
-  if (lastReport && Date.now() - lastReport < 5 * 60 * 1000) {
+  const threadKey = `${window.location.hash}|${normalizedSubject}`;
+  if (threadKey === lastReportedThreadKey) {
     return;
   }
 
-  const email = findTrackedEmailForSubject(subject, trackingMap);
-  if (email && (await reportSelfViewById(email.id, "gmail-thread-view"))) {
-    reportedSelfViews.set(normalizedSubject, Date.now());
+  // Report *every* tracked email with this subject, not just the newest:
+  // a thread can contain several tracked messages (follow-ups, replies) and
+  // Gmail renders all of their pixels when the thread is opened.
+  const emails = findTrackedEmailsForSubject(subject, trackingMap);
+  if (emails.length === 0) {
+    lastReportedThreadKey = threadKey;
+    return;
+  }
+
+  lastReportedThreadKey = threadKey;
+  const results = await Promise.all(
+    emails.map((email) => reportSelfViewById(email.id, "gmail-thread-view"))
+  );
+  if (!results.every(Boolean)) {
+    // Let the next pass retry.
+    lastReportedThreadKey = null;
   }
 }
 
@@ -677,8 +892,8 @@ function createIndicators(isOpened, openCount) {
   return container;
 }
 
-async function addInboxIndicators() {
-  const trackedEmails = await fetchTrackedEmails();
+async function addInboxIndicators(force = false) {
+  const trackedEmails = await fetchTrackedEmails(force);
   if (trackedEmails.length === 0) {
     return;
   }
@@ -707,8 +922,13 @@ async function addInboxIndicators() {
 
     armSelfOpenSuppressionForRow(row, email);
 
-    if (row.querySelector(".email-tracker-inbox-indicators")) {
-      return;
+    const openCount = getOpenCount(email);
+    const existing = row.querySelector(".email-tracker-inbox-indicators");
+    if (existing) {
+      if (existing.getAttribute("data-open-count") === String(openCount)) {
+        return;
+      }
+      existing.remove();
     }
 
     const timeElement =
@@ -721,8 +941,8 @@ async function addInboxIndicators() {
       return;
     }
 
-    const openCount = getOpenCount(email);
     const indicators = createIndicators(openCount > 0, openCount);
+    indicators.setAttribute("data-open-count", String(openCount));
 
     timeElement.parentElement.style.display = "flex";
     timeElement.parentElement.style.alignItems = "center";
@@ -732,7 +952,7 @@ async function addInboxIndicators() {
 }
 
 function startInboxMonitoring() {
-  setTimeout(() => addInboxIndicators(), 2000);
+  setTimeout(() => addInboxIndicators(true), 2000);
 
   const inboxObserver = new MutationObserver(() => {
     clearTimeout(window.inboxUpdateTimeout);
@@ -752,16 +972,20 @@ function startInboxMonitoring() {
     }
   }, 1000);
 
-  setInterval(() => {
-    document
-      .querySelectorAll(".email-tracker-inbox-indicators")
-      .forEach((el) => el.remove());
-    addInboxIndicators();
-  }, 30000);
+  // Periodic refresh so open counts update without a page reload.
+  setInterval(() => addInboxIndicators(true), 30000);
 }
 
+// Navigating into a thread changes the hash. Report from the cached list
+// immediately (no fetch, no debounce) to beat Gmail's proxy fetch, then do
+// the normal pass.
 window.addEventListener("hashchange", () => {
-  setTimeout(addInboxIndicators, 1000);
+  if (trackedEmailsCache.length > 0) {
+    setTimeout(() => {
+      suppressCurrentThreadIfTracked(buildTrackingMap(trackedEmailsCache));
+    }, 50);
+  }
+  setTimeout(() => addInboxIndicators(), 1000);
 });
 
 console.log("🎬 Email Tracker: Content script starting...");
@@ -770,6 +994,6 @@ init();
 setTimeout(() => {
   if (window.location.hostname.includes("mail.google.com")) {
     startInboxMonitoring();
-    addInboxIndicators();
+    addInboxIndicators(true);
   }
 }, 3000);

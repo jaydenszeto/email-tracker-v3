@@ -6,8 +6,27 @@
 - ✅ **Beautiful Dashboard** - Shows all tracking data with clean timestamps
 - ✅ **Chrome Extension** - Automatically adds tracking pixels to Gmail
 - ✅ **10-Second Grace Period** - Filters out compose-time opens
-- ✅ **Self-Open Suppression** - Ignores owner-side Gmail opens detected by the extension
+- ✅ **Self-Open Suppression** - Ignores owner-side Gmail opens detected by the extension (send, row click, thread view), retroactively deleting any that raced ahead
 - ✅ **Bot Detection** - Distinguishes real opens from automated ones
+
+---
+
+## Self-hosted deployment (openclaw)
+
+Live at **https://jaydenszeto.me/email-tracker/**.
+
+| Piece | Where |
+|---|---|
+| Code | `openclaw:/home/opc/email-tracker` (rsync'd by `./deploy.sh`) |
+| Service | `email-tracker.service` — `systemctl status email-tracker`, `journalctl -u email-tracker -f` |
+| Runtime | `/usr/bin/node` on port **3005**; env is inline `Environment=` lines in the unit (SELinux blocks `EnvironmentFile` under `/home`) |
+| Database | `mongod` 8.0 on `127.0.0.1:27017`, db `email-tracker` (`systemctl status mongod`) |
+| Reverse proxy | Caddy `/etc/caddy/Caddyfile`: `redir /email-tracker /email-tracker/` + `handle_path /email-tracker/* → localhost:3005` inside the `jaydenszeto.me` site block. Backup: `Caddyfile.bak.pre-email-tracker` |
+| Health | `curl https://jaydenszeto.me/email-tracker/health` |
+
+Redeploy after local changes: `./deploy.sh` (runs the tests first).
+
+Extension users: the popup's Server URL should be `https://jaydenszeto.me/email-tracker`. Installs still pointing at the old Render URL are migrated automatically when the extension updates. Your existing API key keeps working — the data was imported.
 
 ---
 

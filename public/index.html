@@ -452,6 +452,12 @@
     </div>
 
     <script>
+        // The app may be mounted under a path prefix behind a reverse proxy
+        // (e.g. https://jaydenszeto.me/email-tracker/). Resolve API calls
+        // relative to the directory this page was served from.
+        const BASE_PATH = window.location.pathname.replace(/\/[^/]*$/, '');
+        const api = (path) => `${BASE_PATH}${path}`;
+
         function getApiKeyFromUrl() {
             // Preferred: key in the URL fragment (#key=...), which never reaches
             // the server or third-party requests. Also accept the legacy ?key=
@@ -524,7 +530,7 @@
             UI.generateKeyBtn.textContent = 'generating...';
 
             try {
-                const res = await fetch('/api/auth/generate-key', {
+                const res = await fetch(api('/api/auth/generate-key'), {
                     method: 'POST'
                 });
 
@@ -545,7 +551,7 @@
         }
 
         async function validateApiKey(key) {
-            const response = await fetch('/api/emails', {
+            const response = await fetch(api('/api/emails'), {
                 headers: {
                     'X-API-Key': key
                 }
@@ -771,7 +777,7 @@
 
         async function loadEmails() {
             try {
-                const res = await apiRequest('/api/emails');
+                const res = await apiRequest(api('/api/emails'));
                 if (!res.ok) throw new Error('Failed to load emails');
 
                 const emails = await res.json();
@@ -806,7 +812,7 @@
             if (!confirm('Delete this tracked email?')) return;
 
             try {
-                const res = await apiRequest(`/api/emails/${id}`, { method: 'DELETE' });
+                const res = await apiRequest(api(`/api/emails/${id}`), { method: 'DELETE' });
                 if (!res.ok) throw new Error('Failed to delete email');
 
                 await loadEmails();

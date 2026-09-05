@@ -49,13 +49,13 @@ Click the extension icon to:
 ## Configuration
 
 ### For Local Development
-- Default server: `http://localhost:3000`
+- Default server: `https://jaydenszeto.me/email-tracker`
 - Make sure your email tracker server is running
 
 ### For Production (Render)
 1. Deploy your server to Render
 2. Click the extension icon
-3. Change Server URL to: `https://your-app.onrender.com`
+3. Change Server URL to: `https://jaydenszeto.me/email-tracker`
 4. Click "Save Settings"
 
 ## Features

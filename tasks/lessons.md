@@ -1,0 +1,11 @@
+# Lessons (email-tracker)
+
+- **Gmail DOM (verified 2026-09-05):** popup compose = `div[role="dialog"]`, no `<form>`. Inline reply has neither dialog nor form; the editor (`div[aria-label="Message Body"]`) is ~13 ancestors below the element holding the Send button. Send button aria-label is `Send ‪(⌘Enter)‬`; "More send options" also matches a loose `*="Send"` selector — anchor with `^send\b` and exclude `options|later`. `[aria-label*="To"]` also matches "Toggle confidential mode" — use `div[name="to"]`.
+- **Inline replies expose no recipient address in the compose DOM**; take it from the thread's last sender header (`span.gD[email]`).
+- **Gmail's real proxy UA** is `Mozilla/5.0 (Windows NT 5.1; rv:11.0) Gecko Firefox/11.0 (via ggpht.com GoogleImageProxy)` — detection must key on `googleimageproxy`, not on the "Firefox" part.
+- **Owner views are indistinguishable from recipient opens on the wire.** Every self-open protection must come from the extension telling the server *when* the owner is looking, and the server must be able to delete an open that was already counted (the proxy fetch beats the report).
+- **Anything captured at pixel-creation time (subject, recipient) is provisional.** Finalize it at send time.
+- **Never key extension state on Gmail DOM nodes alone** — Gmail re-creates compose DOM on pop-out/minimise; look for the pixel in the body instead.
+- **openclaw + SELinux:** systemd cannot exec binaries *or read `EnvironmentFile`* under `/home/opc` (`Failed to run 'start' task: Permission denied`). Use `/usr/bin/node` and inline `Environment=` lines.
+- **Gmail's page CSP uses Trusted Types**, so a content script cannot be simulated by `eval` from devtools; test extension code by loading the unpacked extension, not by injection.
+- **E2E tests against production must not run from the sender's IP** — the `sender-ip` filter is working as designed and will "fail" the test. Run them on the server with `X-Forwarded-For` set to a fake recipient IP (the app honors the header directly; Caddy strips spoofed ones from the outside).
